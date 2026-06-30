@@ -1,0 +1,17 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+piper/
+
+# Audio files
+*.wav
+*.onnx
+
+# Runtime
+response.txt
+
+contacts.json

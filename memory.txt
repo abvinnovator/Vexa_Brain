@@ -1,0 +1,85 @@
+Name: Brahma Vamsi
+
+Education:
+B.Tech CSE
+SRKR Engineering College
+Graduating in 2026
+
+Location:
+Andhra Pradesh, India
+
+Career:
+Full Stack Developer
+System Designer
+
+Skills:
+React
+Next.js
+TypeScript
+Node.js
+Supabase
+Chrome Extensions
+GCP
+Cloud Technologies
+
+Projects:
+Vexa Personal AI Assistant
+Flexible Seating Arrangement System
+Chrome Extension Platform
+Student Networking Platform
+
+Personal portfolio : brahmavamsia.netlify.app
+
+Interests:
+AI
+Agentic AI
+Automation
+Startups
+SaaS Products
+System Design
+Cloud Computing
+
+Goals:
+Build impactful software products.
+Create Vexa as a personal AI assistant.
+Launch products for students and productivity.
+
+My present Situation:
+I have previously worked on chrome extensions as a intern and as well as fte in small startup called cmdOS(previously known as Tasklabs) here is the 
+official website:cmdos.app
+
+Now present i am working in Cognizant as Program Analyst Trainee with assigned domain as GCP and GWS Technical support engineer.
+And also recently i have interviewed for Cognizant ACE - ai full stack engineer sr.Associate role which is 18LPA and also Associate 12LPA.and interview results yet to come.
+Okay, I am now again telling the mail. Please listen carefully. The mail is So that's the mail
+[Inbox Check - 2026-06-15 19:11]
+Searched for: Cognizant
+- Subject: Background verification process Notification: Documents submitted
+ successfully,Bgvtype : Campus <2957642> [c1h8z37h]
+  From: CognizantTlntAcq@cognizant.com | Date: 15-Jun-2026 11:29 AM
+  Summary: This email is a notification from Cognizant regarding your background verification process.
+It confirms the successful submission of documents for your campus BGV.
+- Subject: Campus: Onboarding Status Notification: 40422337 - Unable to Onboard
+ <2957642> [dw2w4r6f]
+  From: CognizantTlntAcq@cognizant.com | Date: 15-Jun-2026 09:57 AM
+  Summary: This email is a notification from Cognizant about your campus onboarding status.
+It states that you are currently unable to be onboarded.
+
+His AI assistant's name is Vexa.
+He is looking for a "resignation confirmation" related to "Task Lab".
+Preference: He expects or prefers "exact date and time" for time-based information requests.
+He is looking for an email about "Task Lab's resignation confirmation".
+Preference: He wants his assistant to recognize certain phrases as single words (no gap) for accurate search results.
+Preference: When searching for emails, he wants the exact date and time of receipt.
+Vamsi is addressing or involved in a "formal resignation."
+He uses "brahmavamsi" as a specific identifier or contextual element related to the resignation.
+Preference: Prefers search queries to be simple and direct, specifying the core keyword (e.g., 'resignation') and indicating that no further complexity is needed with phrases like "That's enough."
+[Inbox Check - 2026-06-17 20:10]
+Searched for: Cognizant
+- Call from Cognizant IVR Responded (from: CognizantHR@cognizant.com, 17-Jun-2026 10:23 AM)
+- Cognizant | FTE 2026 | Next steps on your onboarding (from: <GenCOBSupport@cognizant.com>, 17-Jun-2026 08:52 AM)
+
+Vamsi's joining date of cognizant is 25th June as a full-time employee.
+Vamsi identifies as GenC , Program Analyst Trainee .
+Vamsi completed his internship in Cognizant in May 2026, with a focus on Google Cloud and Google Workspace.
+Vamsi is waiting for an Associate or Senior Associate role with a salary range of 12-18 LPA.
+Vamsi had an interview, referred to as the "ace interview", for the ai full stack engineer role.

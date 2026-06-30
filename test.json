@@ -1,0 +1,1136 @@
+[
+   {
+      "eventId":"505797fa-eeca-45da-a053-e376ca0544bb",
+      "sessionId":"e52b5027-a032-4fc3-affb-2c4027b50d11",
+      "userId":"local_user",
+      "timestamp":1782577081603,
+      "packageName":"com.android.settings",
+      "appName":"Settings",
+      "eventType":"VIEW_CLICKED",
+      "visibleText":"Shortcut settings",
+      "buttonLabel":"Shortcut settings",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"1b58be01-035d-4946-9b90-ba849bd2cb90",
+      "sessionId":"e52b5027-a032-4fc3-affb-2c4027b50d11",
+      "userId":"local_user",
+      "timestamp":1782577082710,
+      "packageName":"com.android.settings",
+      "appName":"Settings",
+      "eventType":"VIEW_CLICKED",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"06291eb4-0eae-486c-b72b-adb9e3d19398",
+      "sessionId":"e52b5027-a032-4fc3-affb-2c4027b50d11",
+      "userId":"local_user",
+      "timestamp":1782577082791,
+      "packageName":"com.android.settings",
+      "appName":"Settings",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"Disable \"ObserveAI\"?",
+      "screenTexts":[
+         "Disable \"ObserveAI\"?",
+         "Keep on",
+         "Turn off"
+      ],
+      "clickableElements":[
+         {
+            "text":"Keep on"
+         },
+         {
+            "text":"Turn off"
+         }
+      ],
+      "editableFields":[
+         
+      ],
+      "screenName":"AlertDialog",
+      "screenTitle":"Disable \"ObserveAI\"?"
+   },
+   {
+      "eventId":"b7a9f20d-63e4-4007-a9f6-caf3ab43acb3",
+      "sessionId":"8ba980cb-caa6-4030-8389-d794310a711a",
+      "userId":"local_user",
+      "timestamp":1782577086298,
+      "packageName":"com.android.launcher",
+      "appName":"System Launcher",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"Recent apps",
+      "screenTexts":[
+         "Back",
+         "ObserveAI",
+         "On",
+         "Shortcut",
+         "Accessibility button",
+         "Shortcut settings",
+         "App info",
+         "About this function"
+      ],
+      "clickableElements":[
+         {
+            "text":"Back"
+         },
+         {
+            "text":"Shortcut settings"
+         }
+      ],
+      "editableFields":[
+         
+      ],
+      "screenName":"ScrollView",
+      "screenTitle":"Recent apps"
+   },
+   {
+      "eventId":"08bf6f2d-e197-41c4-8f6e-4f162f78feaa",
+      "sessionId":"8ba980cb-caa6-4030-8389-d794310a711a",
+      "userId":"local_user",
+      "timestamp":1782577087220,
+      "packageName":"com.android.launcher",
+      "appName":"System Launcher",
+      "eventType":"VIEW_FOCUSED",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"01171c95-dd71-4966-9776-4bc936c351d5",
+      "sessionId":"23d1f5ae-3899-47d9-a79e-7567037879b1",
+      "userId":"local_user",
+      "timestamp":1782577093538,
+      "packageName":"com.grofers.customerapp",
+      "appName":"com.grofers.customerapp",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"Application icon",
+      "screenTexts":[
+         "ObserveAI Button",
+         "StdSP Core Button",
+         "Settings Button",
+         "Google Lens Button",
+         "Clean up",
+         "Close",
+         "Clock",
+         "9",
+         ":",
+         "48",
+         "Sat 27 Jun",
+         "Partly cloudy",
+         "Internet",
+         "Game Assistant",
+         "Messages",
+         "Play Store",
+         "App Market",
+         "Phone Manager",
+         "Folder: Google",
+         "Videos",
+         "Outdoor mode",
+         "Authenticator",
+         "PhonePe",
+         "Photos",
+         "Settings",
+         "LinkedIn",
+         "RailOne",
+         "Spotify",
+         "Gemini",
+         "District"
+      ],
+      "clickableElements":[
+         {
+            "text":"ObserveAI Button"
+         },
+         {
+            "text":"StdSP Core Button"
+         },
+         {
+            "text":"Settings Button"
+         },
+         {
+            "text":"Google Lens Button"
+         },
+         {
+            "text":"Clean up"
+         },
+         {
+            "text":"9"
+         },
+         {
+            "text":":"
+         },
+         {
+            "text":"48"
+         },
+         {
+            "text":"Sat 27 Jun"
+         },
+         {
+            "text":"Partly cloudy"
+         },
+         {
+            "text":"Internet"
+         },
+         {
+            "text":"Game Assistant"
+         },
+         {
+            "text":"Messages"
+         },
+         {
+            "text":"Play Store"
+         },
+         {
+            "text":"App Market"
+         }
+      ],
+      "editableFields":[
+         
+      ],
+      "screenName":"FrameLayout",
+      "screenTitle":"Application icon"
+   },
+   {
+      "eventId":"93bac520-751d-47ca-8e86-7d28e59cc0f8",
+      "sessionId":"23d1f5ae-3899-47d9-a79e-7567037879b1",
+      "userId":"local_user",
+      "timestamp":1782577094147,
+      "packageName":"com.android.launcher",
+      "appName":"System Launcher",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"Recent apps",
+      "screenTexts":[
+         "Everything you need, delivered at your doorstep"
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ],
+      "screenName":"ScrollView",
+      "screenTitle":"Recent apps"
+   },
+   {
+      "eventId":"cadbe3ca-199f-480c-b6d6-df40d7cada2c",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577123130,
+      "packageName":"com.grofers.customerapp",
+      "appName":"com.grofers.customerapp",
+      "eventType":"VIEW_CLICKED",
+      "visibleText":"Decrease quantity",
+      "buttonLabel":"Decrease quantity",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"c160d421-1f34-4035-923b-8b97733cc1b8",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577123749,
+      "packageName":"com.grofers.customerapp",
+      "appName":"com.grofers.customerapp",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "screenTexts":[
+         "Search for atta, dal, coke and more",
+         "",
+         "Double tap to voice search",
+         "",
+         "boAt Airdopes Prime 701 ANC TWS Earbuds (Titanium Blue) is available for ₹2,199",
+         "Add to wishlist",
+         "Ad",
+         "image 1 of 11",
+         "1 unit",
+         "₹2,199",
+         "₹7,990",
+         "boAt Airdopes Prime 701 ANC TWS Earbuds (Titanium Blue)",
+         "ANC",
+         "IPX7",
+         "Bluetooth",
+         "141",
+         "12 mins",
+         "2 left",
+         "boAt Bassheads 95 Wired Earphones (Raging Red) is available for ₹249",
+         "image 1 of 8",
+         "₹249",
+         "₹1,199",
+         "boAt Bassheads 95 Wired Earphones (Raging Red)",
+         "3.5 mm Jack",
+         "3,122",
+         "14 mins",
+         "4 left",
+         "boAt Bassheads 100 Wired Earphones (Black) is available for ₹449",
+         "image 1 of 9",
+         "₹449"
+      ],
+      "clickableElements":[
+         {
+            "text":"Clear all"
+         },
+         {
+            "text":"Voice search button"
+         },
+         {
+            "text":"boAt Airdopes Prime 701 ANC TWS Earbuds (Titanium Blue) is available for ₹2,199"
+         },
+         {
+            "text":"Add to wishlist"
+         },
+         {
+            "text":"ANC"
+         },
+         {
+            "text":"IPX7"
+         },
+         {
+            "text":"Bluetooth"
+         },
+         {
+            "text":"boAt Bassheads 95 Wired Earphones (Raging Red) is available for ₹249"
+         },
+         {
+            "text":"Add to wishlist"
+         },
+         {
+            "text":"3.5 mm Jack"
+         },
+         {
+            "text":"boAt Bassheads 100 Wired Earphones (Black) is available for ₹449"
+         },
+         {
+            "text":"Add to wishlist"
+         },
+         {
+            "text":"3.5 mm Jack"
+         },
+         {
+            "text":"Portronics iKonnect C Pro Audio Jack Converter Type C to 3.5 mm (Black) is available for ₹219"
+         },
+         {
+            "text":"Portronics Mobot III Mobile Stand (Black) is available for ₹269"
+         }
+      ],
+      "editableFields":[
+         
+      ],
+      "screenName":"FrameLayout"
+   },
+   {
+      "eventId":"83445162-8010-4208-bf1a-1e522c5a5a9e",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577125263,
+      "packageName":"com.grofers.customerapp",
+      "appName":"com.grofers.customerapp",
+      "eventType":"VIEW_CLICKED",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"ac3b600c-9dcc-4241-a39f-7b32ecfb3297",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577125447,
+      "packageName":"com.grofers.customerapp",
+      "appName":"com.grofers.customerapp",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"Blinkit",
+      "screenTexts":[
+         "Go back",
+         "Checkout"
+      ],
+      "clickableElements":[
+         {
+            "text":"Go back"
+         }
+      ],
+      "editableFields":[
+         
+      ],
+      "screenName":"CartActivity",
+      "screenTitle":"Blinkit"
+   },
+   {
+      "eventId":"e501439c-14ec-4dc0-a0cd-c1dcdc4116e6",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577127359,
+      "packageName":"com.grofers.customerapp",
+      "appName":"com.grofers.customerapp",
+      "eventType":"VIEW_FOCUSED",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"2f525eee-dc68-48aa-aefe-0a5b868fab18",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577132130,
+      "packageName":"com.android.launcher",
+      "appName":"System Launcher",
+      "eventType":"VIEW_FOCUSED",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"dc8d7f82-906e-421a-af72-988de5ed8cda",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577132281,
+      "packageName":"com.android.launcher",
+      "appName":"System Launcher",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"Recent apps",
+      "screenTexts":[
+         "StdSP Core",
+         "More",
+         "ObserveAI",
+         "Blinkit",
+         "Blinkit Button",
+         "ObserveAI Button",
+         "StdSP Core Button",
+         "Settings Button",
+         "Google Lens Button",
+         "Clean up",
+         "Close",
+         "Phone",
+         "Chrome",
+         "Camera",
+         "Messages",
+         "Contacts"
+      ],
+      "clickableElements":[
+         {
+            "text":"StdSP Core"
+         },
+         {
+            "text":"More"
+         },
+         {
+            "text":"ObserveAI"
+         },
+         {
+            "text":"More"
+         },
+         {
+            "text":"Blinkit"
+         },
+         {
+            "text":"More"
+         },
+         {
+            "text":"Blinkit Button"
+         },
+         {
+            "text":"ObserveAI Button"
+         },
+         {
+            "text":"StdSP Core Button"
+         },
+         {
+            "text":"Settings Button"
+         },
+         {
+            "text":"Google Lens Button"
+         },
+         {
+            "text":"Clean up"
+         },
+         {
+            "text":"Close"
+         },
+         {
+            "text":"Phone"
+         },
+         {
+            "text":"Chrome"
+         }
+      ],
+      "editableFields":[
+         
+      ],
+      "screenName":"Launcher",
+      "screenTitle":"Recent apps"
+   },
+   {
+      "eventId":"b41abde5-14fa-4161-9b95-d414d8ab38f2",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577134929,
+      "packageName":"com.android.launcher",
+      "appName":"System Launcher",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"Recent apps",
+      "screenTexts":[
+         "Clean up",
+         "Close",
+         "Clock",
+         "9",
+         ":",
+         "48",
+         "Sat 27 Jun",
+         "Partly cloudy",
+         "27‎°‎",
+         "Internet",
+         "Game Assistant",
+         "Messages",
+         "Play Store",
+         "App Market",
+         "Phone Manager",
+         "Folder: Google",
+         "Google",
+         "Videos",
+         "Outdoor mode",
+         "Optimised for outdoor use",
+         "Turn on",
+         "Authenticator",
+         "PhonePe",
+         "Photos",
+         "Settings",
+         "LinkedIn",
+         "RailOne",
+         "Spotify",
+         "Gemini",
+         "District"
+      ],
+      "clickableElements":[
+         {
+            "text":"Clean up"
+         },
+         {
+            "text":"9"
+         },
+         {
+            "text":":"
+         },
+         {
+            "text":"48"
+         },
+         {
+            "text":"Sat 27 Jun"
+         },
+         {
+            "text":"Partly cloudy"
+         },
+         {
+            "text":"27‎°‎"
+         },
+         {
+            "text":"Internet"
+         },
+         {
+            "text":"Game Assistant"
+         },
+         {
+            "text":"Messages"
+         },
+         {
+            "text":"Play Store"
+         },
+         {
+            "text":"App Market"
+         },
+         {
+            "text":"Phone Manager"
+         },
+         {
+            "text":"Folder: Google"
+         },
+         {
+            "text":"Google"
+         }
+      ],
+      "editableFields":[
+         
+      ],
+      "screenName":"ListView",
+      "screenTitle":"Recent apps"
+   },
+   {
+      "eventId":"35968cb5-5948-44ee-b239-eb223662bc7b",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577138012,
+      "packageName":"com.android.launcher",
+      "appName":"System Launcher",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"App list",
+      "screenTexts":[
+         "Clean up",
+         "Close",
+         "Phone",
+         "Chrome",
+         "Camera",
+         "Messages",
+         "Contacts",
+         "All",
+         "Categories",
+         "Sort",
+         "WhatsApp",
+         "Reddit",
+         "Blinkit",
+         "ObserveAI",
+         "Instagram",
+         "X"
+      ],
+      "clickableElements":[
+         {
+            "text":"Clean up"
+         },
+         {
+            "text":"Phone"
+         },
+         {
+            "text":"Chrome"
+         },
+         {
+            "text":"Camera"
+         },
+         {
+            "text":"Messages"
+         },
+         {
+            "text":"Contacts"
+         },
+         {
+            "text":"All"
+         },
+         {
+            "text":"Categories"
+         },
+         {
+            "text":"Sort"
+         },
+         {
+            "text":"WhatsApp has 13 notifications"
+         },
+         {
+            "text":"Reddit"
+         },
+         {
+            "text":"Blinkit"
+         },
+         {
+            "text":"ObserveAI"
+         },
+         {
+            "text":"Instagram"
+         },
+         {
+            "text":"Chrome"
+         }
+      ],
+      "editableFields":[
+         
+      ],
+      "screenName":"Launcher",
+      "screenTitle":"App list"
+   },
+   {
+      "eventId":"4c6d248b-737c-483f-b0a2-4bccfb57ae21",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577140485,
+      "packageName":"com.oppo.quicksearchbox",
+      "appName":"com.oppo.quicksearchbox",
+      "eventType":"VIEW_FOCUSED",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"e72a1be0-f0f5-4beb-9aa2-84601fdfdcb7",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577141669,
+      "packageName":"com.oppo.quicksearchbox",
+      "appName":"com.oppo.quicksearchbox",
+      "eventType":"VIEW_TEXT_CHANGED",
+      "visibleText":"uber",
+      "typedText":"uber",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"5647a6f4-3551-4202-8449-ef10e2723e4c",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577143645,
+      "packageName":"com.android.launcher",
+      "appName":"System Launcher",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"Recent apps",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ],
+      "screenName":"ScrollView",
+      "screenTitle":"Recent apps"
+   },
+   {
+      "eventId":"bdf49c25-c41d-4e33-97d3-624bd61e4084",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577147137,
+      "packageName":"com.ubercab",
+      "appName":"com.ubercab",
+      "eventType":"VIEW_FOCUSED",
+      "fieldHint":"Where to?",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"974a7cb0-fae9-4b88-81fa-c58a13704fd5",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577150345,
+      "packageName":"com.ubercab",
+      "appName":"com.ubercab",
+      "eventType":"VIEW_CLICKED",
+      "fieldHint":"Where to?",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"86d0a5aa-2349-4f2f-9ae7-6c0fc45cd48b",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577150441,
+      "packageName":"com.ubercab",
+      "appName":"com.ubercab",
+      "eventType":"VIEW_FOCUSED",
+      "fieldHint":"Where to?",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"7e6a1ca2-f490-4f70-8ff4-0027de07b632",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577155359,
+      "packageName":"com.android.launcher",
+      "appName":"System Launcher",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"Recent apps",
+      "screenTexts":[
+         "Voice typing",
+         "Clear",
+         "My apps",
+         "Uber",
+         "Locate app",
+         "Rapido",
+         "More apps",
+         "Uber - Driver: Drive & Deliver",
+         "4.1 | 298 MB",
+         "5K+",
+         "Install",
+         "Ola: Book Cab, Auto, Bike Taxi",
+         "4.0 | 73.7 MB",
+         "57K+",
+         "Uber Lite",
+         "4.8 | 133 MB",
+         "1K+",
+         "inDrive. Rides with fair fares",
+         "5.0 | 168 MB",
+         "3K+",
+         "Uber Eats Manager",
+         "4.0 | 165 MB",
+         "194",
+         "Settings"
+      ],
+      "clickableElements":[
+         {
+            "text":"Global Search"
+         },
+         {
+            "text":"Clear"
+         },
+         {
+            "text":"Locate app"
+         },
+         {
+            "text":"Locate app"
+         },
+         {
+            "text":"Install"
+         },
+         {
+            "text":"Install"
+         },
+         {
+            "text":"Install"
+         },
+         {
+            "text":"Install"
+         },
+         {
+            "text":"Install"
+         },
+         {
+            "text":"Settings"
+         }
+      ],
+      "editableFields":[
+         {
+            "hint":"Global Search",
+            "value":"uber"
+         }
+      ],
+      "screenName":"ListView",
+      "screenTitle":"Recent apps"
+   },
+   {
+      "eventId":"10f6ebb2-7afa-4ea4-b549-a0b24c4275b9",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577157057,
+      "packageName":"com.oppo.quicksearchbox",
+      "appName":"com.oppo.quicksearchbox",
+      "eventType":"VIEW_CLICKED",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"2255f64d-993c-4097-90ea-1b744e6601b3",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577157170,
+      "packageName":"com.ubercab",
+      "appName":"com.ubercab",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"Uber",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ],
+      "screenName":"RootActivity",
+      "screenTitle":"Uber"
+   },
+   {
+      "eventId":"39c7e2d4-72bb-441d-acef-01457bf7c4b0",
+      "sessionId":"742e0a1b-4121-4895-b6c9-e6832f6a3008",
+      "userId":"local_user",
+      "timestamp":1782577157174,
+      "packageName":"com.ubercab",
+      "appName":"com.ubercab",
+      "eventType":"VIEW_FOCUSED",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"d2ae56ba-a72e-4f2b-90ab-888b89689ecd",
+      "sessionId":"2a2e14de-b903-4453-bd4e-b59f745d1b8a",
+      "userId":"local_user",
+      "timestamp":1782577164785,
+      "packageName":"com.android.launcher",
+      "appName":"System Launcher",
+      "eventType":"VIEW_FOCUSED",
+      "screenTexts":[
+         
+      ],
+      "clickableElements":[
+         
+      ],
+      "editableFields":[
+         
+      ]
+   },
+   {
+      "eventId":"ea6e07e4-7c92-4696-8c24-299154973c9e",
+      "sessionId":"2a2e14de-b903-4453-bd4e-b59f745d1b8a",
+      "userId":"local_user",
+      "timestamp":1782577165209,
+      "packageName":"com.android.launcher",
+      "appName":"System Launcher",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"Recent apps",
+      "screenTexts":[
+         "Uber",
+         "More",
+         "Uber Button",
+         "Clean up",
+         "Close",
+         "All",
+         "Categories",
+         "Sort",
+         "WhatsApp",
+         "Reddit",
+         "Blinkit",
+         "ObserveAI",
+         "Instagram",
+         "Chrome",
+         "X",
+         "Gmail",
+         "AbhiBus",
+         "AJIO",
+         "Apps",
+         "App Market",
+         "APSRTC LIVE TRACKING",
+         "Authenticator",
+         "BHIM",
+         "BookMyShow",
+         "Brave",
+         "Bus Simulator India",
+         "Bus Simulator Indonesia",
+         "cult.fit",
+         "Calculator",
+         "Calendar"
+      ],
+      "clickableElements":[
+         {
+            "text":"Uber"
+         },
+         {
+            "text":"More"
+         },
+         {
+            "text":"Uber Button"
+         },
+         {
+            "text":"Clean up"
+         },
+         {
+            "text":"Close"
+         },
+         {
+            "text":"All"
+         },
+         {
+            "text":"Categories"
+         },
+         {
+            "text":"Sort"
+         },
+         {
+            "text":"WhatsApp has 13 notifications"
+         },
+         {
+            "text":"Reddit"
+         },
+         {
+            "text":"Blinkit"
+         },
+         {
+            "text":"ObserveAI"
+         },
+         {
+            "text":"Instagram has 8 notifications"
+         },
+         {
+            "text":"Chrome"
+         },
+         {
+            "text":"X"
+         }
+      ],
+      "editableFields":[
+         {
+            "hint":"Search",
+            "value":"Search"
+         }
+      ],
+      "screenName":"Launcher",
+      "screenTitle":"Recent apps"
+   },
+   {
+      "eventId":"415cd523-422d-4c32-bbda-b871cf35670d",
+      "sessionId":"2a2e14de-b903-4453-bd4e-b59f745d1b8a",
+      "userId":"local_user",
+      "timestamp":1782577172086,
+      "packageName":"com.android.launcher",
+      "appName":"System Launcher",
+      "eventType":"WINDOW_STATE_CHANGED",
+      "visibleText":"App list",
+      "screenTexts":[
+         "Clean up",
+         "Close",
+         "All",
+         "Categories",
+         "Sort",
+         "WhatsApp",
+         "Reddit",
+         "Blinkit",
+         "ObserveAI",
+         "Instagram",
+         "Chrome",
+         "X",
+         "Gmail",
+         "AbhiBus",
+         "AJIO",
+         "Apps",
+         "App Market",
+         "APSRTC LIVE TRACKING",
+         "Authenticator",
+         "BHIM",
+         "BookMyShow",
+         "Brave",
+         "Bus Simulator India",
+         "Bus Simulator Indonesia",
+         "cult.fit",
+         "Calculator",
+         "Calendar",
+         "Camera",
+         "Canara ai1",
+         "Car Driving Online"
+      ],
+      "clickableElements":[
+         {
+            "text":"Clean up"
+         },
+         {
+            "text":"All"
+         },
+         {
+            "text":"Categories"
+         },
+         {
+            "text":"Sort"
+         },
+         {
+            "text":"WhatsApp has 13 notifications"
+         },
+         {
+            "text":"Reddit"
+         },
+         {
+            "text":"Blinkit"
+         },
+         {
+            "text":"ObserveAI"
+         },
+         {
+            "text":"Instagram has 8 notifications"
+         },
+         {
+            "text":"Chrome"
+         },
+         {
+            "text":"X"
+         },
+         {
+            "text":"Gmail"
+         },
+         {
+            "text":"AbhiBus"
+         },
+         {
+            "text":"AJIO"
+         },
+         {
+            "text":"Apps"
+         }
+      ],
+      "editableFields":[
+         
+      ],
+      "screenName":"Launcher",
+      "screenTitle":"App list"
+   }
+]

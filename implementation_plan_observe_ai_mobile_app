@@ -1,0 +1,399 @@
+# ObserveAI Stage 1.6 — Event Architecture Redesign for AI Automation
+
+## Analysis of Real V2 Export JSON
+
+### What the V2 data actually contains (72 events parsed)
+
+```
+Apps observed: Launcher, Settings, Reddit, RedBus, Gboard
+Time window: ~3 minutes (1782111514 → 1782111697)
+```
+
+**App breakdown:**
+| App | Events | Issues |
+|-----|--------|--------|
+| `com.android.launcher` | 31 events | 99% noise — `VIEW_FOCUSED` on FrameLayout, no meaning |
+| `com.android.settings` | 9 events | OK but `screenTitle:"OFF"` is wrong (button label leaking into screenTitle) |
+| `com.reddit.frontpage` | 11 events | Best data — typing captured correctly, but fieldLabel pollutes later events |
+| `com.google.android.inputmethod.latin` | 8 events | Pure noise — IME window state changes carry zero value |
+| `in.redbus.android` | 3 events | `fieldLabel:"Any update on ace results?"` leaking from Reddit — critical bug |
+
+---
+
+## Design Flaws Found (Evidence-Based)
+
+### 🔴 Bug 1 — Context Leakage (Critical)
+**Evidence from JSON:**
+```json
+// Event 72 — RedBus app, but carries Reddit's body text!
+{
+  "packageName": "in.redbus.android",
+  "eventType": "WINDOW_STATE_CHANGED",
+  "metadata": {
+    "fieldHint": "body text (optional)",   // ← Reddit's field
+    "fieldLabel": "Any update on ace results?"  // ← Reddit's content
+  }
+}
+```
+**Root cause:** `lastFocusedFieldHint` and `lastFocusedFieldLabel` are instance variables on the service — they persist across app switches indefinitely. The service never clears them on `WINDOW_STATE_CHANGED` for a new package.
+
+**Fix:** Clear focus state on app switch. Track `currentPackage` — when it changes, null out `lastFocusedFieldHint/Label`.
+
+---
+
+### 🔴 Bug 2 — fieldLabel reflects current text, not field name
+**Evidence:**
+```json
+{ "fieldLabel": "CTS" }          // ← should be "Post Title", not current text
+{ "fieldLabel": "CTS ACE HIRING" }  // ← it's tracking typed text, not the label
+{ "fieldLabel": "Any update on ace reult" } // mid-typing — meaningless
+```
+The `nodeLabel()` function falls through to `node.text` which is the *current value* of an editable field. For editable fields, only `hintText` or `contentDescription` is the field label — the text is the value.
+
+**Fix:** For editable nodes, use `hintText` and `contentDescription` only — never `node.text` as a label.
+
+---
+
+### 🟡 Bug 3 — Gboard events are pure noise
+**Evidence:** 8 events like:
+```json
+{ "packageName": "com.google.android.inputmethod.latin", "visibleText": "normal keyboard" }
+```
+These carry zero semantic value. The keyboard appearing should not be an event — it's an implementation detail.
+
+**Fix:** Add `com.google.android.inputmethod.latin` to `IGNORED_PACKAGES`.
+
+---
+
+### 🟡 Bug 4 — screenTitle populated from buttonLabel/text on click events
+**Evidence:**
+```json
+{
+  "eventType": "VIEW_CLICKED",
+  "visibleText": "Back",
+  "metadata": { "screenTitle": "Back" }  // ← wrong, "Back" is the button, not the screen
+}
+```
+**Fix:** Only populate `screenTitle` for `WINDOW_STATE_CHANGED` events, never for clicks.
+
+---
+
+### 🟡 Bug 5 — TEXT_CHANGED fires for every keystroke (redundant events)
+**Evidence:** 6 sequential events for typing "Any update on ace results?" each 2 seconds apart — 2s debounce still too short for fast typists. And intermediate states like `"Any update on ace reult"` have no value.
+
+**Fix:** Increase text-change debounce to 4s and use "final value only" strategy (capture on field blur/focus-change instead of on every keystroke).
+
+---
+
+### 🔴 Bug 6 — No screen content snapshot (screenTexts)
+**Evidence:**
+```json
+{ "eventType": "WINDOW_STATE_CHANGED", "visibleText": "Home screen" }
+```
+An AI agent cannot reconstruct what was on the RedBus home screen. We need the visible text of all important nodes.
+
+---
+
+### 🔴 Bug 7 — No resource IDs captured
+**Evidence:** Every click shows `"className": "android.widget.FrameLayout"` — unactionable for future automation.
+
+---
+
+### 🔴 Bug 8 — No session boundaries
+Events are a flat list. No way to know that events 33-72 belong to a "Reddit post creation" session or that events 40-49 are a single "find bus on RedBus" workflow.
+
+---
+
+### 🟡 Bug 9 — Launcher events are 43% of all data (noise)
+`VIEW_FOCUSED` on `android.widget.FrameLayout` from the launcher = zero semantic value. These events should be filtered or collapsed to a single `APP_OPENED` semantic event.
+
+---
+
+## Proposed Changes
+
+### Architecture Overview
+
+```
+Accessibility Events (raw)
+        ↓
+  EventFilter (suppress noise)
+        ↓
+  EventEnricher (snapshot screen, extract IDs)
+        ↓
+  FocusStateTracker (per-app, cleared on switch)
+        ↓
+  SessionTracker (group events into sessions)
+        ↓
+  SemanticNormalizer (future — rule-based → LLM)
+        ↓
+  RichEventRecord (new schema)
+        ↓
+  Room DB → MongoDB
+```
+
+---
+
+### Component 1 — FocusStateTracker (NEW FILE)
+
+Extracted from `ObserveAccessibilityService` into its own class. Per-package state, automatically cleared when the active package changes.
+
+```kotlin
+class FocusStateTracker {
+    private var activePackage: String? = null
+    var focusedFieldHint: String? = null
+        private set
+    var focusedFieldLabel: String? = null
+        private set
+
+    fun onPackageChanged(newPackage: String) {
+        if (newPackage != activePackage) {
+            activePackage = newPackage
+            focusedFieldHint = null   // ← clears context leakage
+            focusedFieldLabel = null
+        }
+    }
+
+    fun onFieldFocused(hint: String?, label: String?) {
+        focusedFieldHint = hint
+        focusedFieldLabel = label
+    }
+
+    fun clear() { focusedFieldHint = null; focusedFieldLabel = null }
+}
+```
+
+---
+
+### Component 2 — ScreenSnapshot (NEW)
+
+For `WINDOW_STATE_CHANGED`, walk the active window's view tree and collect:
+- All non-empty text nodes (up to 20, to cap CPU cost)
+- All clickable elements (text + resourceId)
+- All editable fields (hint + current value)
+
+```kotlin
+data class ScreenSnapshot(
+    val screenTexts: List<String>,           // All visible text
+    val clickableElements: List<ClickableElement>,
+    val editableFields: List<EditableField>
+)
+
+data class ClickableElement(val text: String, val resourceId: String?)
+data class EditableField(val hint: String?, val value: String?)
+```
+
+---
+
+### Component 3 — SessionTracker (NEW FILE)
+
+A session = a continuous sequence of events within the same app (or app group) without a gap > 30 seconds.
+
+```kotlin
+class SessionTracker {
+    private var currentSessionId: String = UUID.randomUUID().toString()
+    private var lastEventTimestamp: Long = 0
+    private var lastPackage: String = ""
+    private val SESSION_GAP_MS = 30_000L
+
+    fun getSessionId(packageName: String, timestamp: Long): String {
+        val gap = timestamp - lastEventTimestamp
+        val appChanged = packageName != lastPackage
+        if (gap > SESSION_GAP_MS || (appChanged && gap > 5000)) {
+            currentSessionId = UUID.randomUUID().toString()
+        }
+        lastEventTimestamp = timestamp
+        lastPackage = packageName
+        return currentSessionId
+    }
+}
+```
+
+---
+
+### Component 4 — Improved RichEventRecord Schema
+
+```kotlin
+data class RichEventRecord(
+    // Identity
+    val eventId: String,
+    val sessionId: String,       // ← NEW: groups events into journeys
+    val userId: String,
+    val timestamp: Long,
+
+    // App context
+    val packageName: String,
+    val appName: String,
+    val appCategory: String?,    // ← NEW: "Travel", "Social", "Productivity"
+
+    // Event
+    val eventType: String,       // raw: WINDOW_STATE_CHANGED, VIEW_CLICKED, VIEW_TEXT_CHANGED
+    val semanticAction: String?, // ← NEW: future layer, e.g. "SEARCH_BUS", "TYPE_POST_BODY"
+
+    // Interaction detail
+    val visibleText: String?,
+    val buttonLabel: String?,    // for clicks
+    val resourceId: String?,     // ← NEW: for automation
+    val typedText: String?,      // for text changes (final value only)
+    val fieldHint: String?,      // which field was typed into
+
+    // Screen snapshot (on WINDOW_STATE_CHANGED only)
+    val screenTexts: List<String>,          // ← NEW
+    val clickableElements: List<ClickableElement>, // ← NEW
+    val editableFields: List<EditableField>,        // ← NEW
+
+    // Screen context
+    val screenName: String?,     // ← NEW: e.g. "SeatSelectionActivity"
+    val screenTitle: String?,
+
+    // Sync
+    val syncStatus: SyncStatus
+)
+```
+
+---
+
+### Component 5 — MongoDB Schema
+
+```javascript
+{
+  // Identity
+  _id: "uuid",
+  sessionId: "uuid",      // index this
+  userId: "local_user",
+  timestamp: ISODate,     // index this
+
+  // App
+  packageName: "in.redbus.android",
+  appName: "RedBus",
+  appCategory: "Travel",  // derived
+
+  // Event
+  eventType: "WINDOW_STATE_CHANGED",
+  semanticAction: null,   // populated by future normalizer
+
+  // Interaction
+  visibleText: "Seat Selection",
+  buttonLabel: null,
+  resourceId: null,
+  typedText: null,
+  fieldHint: null,
+
+  // Screen snapshot
+  screenTexts: ["Hyderabad", "Vijayawada", "A/C Sleeper", "₹699", "Continue"],
+  clickableElements: [
+    { text: "Continue", resourceId: "com.redbus:id/btn_continue" }
+  ],
+  editableFields: [
+    { hint: "From", value: "Hyderabad" },
+    { hint: "To", value: "Vijayawada" }
+  ],
+
+  // Screen
+  screenName: "SeatLayoutActivity",
+  screenTitle: "Seat Selection Screen",
+
+  // Meta
+  syncStatus: "SYNCED",
+  createdAt: ISODate
+}
+```
+
+**MongoDB Indexes:**
+```javascript
+db.events.createIndex({ sessionId: 1 })
+db.events.createIndex({ userId: 1, timestamp: -1 })
+db.events.createIndex({ packageName: 1, timestamp: -1 })
+db.events.createIndex({ semanticAction: 1 })
+```
+
+---
+
+### Component 6 — Semantic Event Layer (Architecture Design)
+
+This is a **future pipeline**, but we design the interface now so the DB schema can accommodate it.
+
+```
+Stage 1.6 (Now):   Store raw events + screen snapshots
+Stage 2.0 (Next):  Rule-based normalizer runs post-hoc
+Stage 3.0 (Future): LLM normalizer via Pinecone/OpenAI
+```
+
+**Rule-based normalizer examples:**
+```kotlin
+fun normalize(events: List<RichEventRecord>): SemanticEvent? {
+    // Detect "BOOK_BUS" intent
+    if (events.any { it.screenName?.contains("SeatLayout") == true } &&
+        events.any { it.buttonLabel == "Continue" }) {
+        return SemanticEvent(
+            action = "BOOK_BUS",
+            params = mapOf(
+                "source" to editableFields.find { it.hint == "From" }?.value,
+                "destination" to editableFields.find { it.hint == "To" }?.value
+            )
+        )
+    }
+}
+```
+
+---
+
+### Files to Create/Modify
+
+---
+
+#### [MODIFY] ObserveAccessibilityService.kt
+- Use `FocusStateTracker` instead of instance variables
+- Call `focusTracker.onPackageChanged(pkg)` on every event before using focus state
+- For editable nodes, use only `hintText`/`contentDescription` as label (not `node.text`)
+- Add Gboard to `IGNORED_PACKAGES`
+- Only set `screenTitle` on `WINDOW_STATE_CHANGED` events
+- Increase text debounce to 4000ms
+- Capture `resourceId` from source node
+- Trigger `ScreenSnapshot` only on `WINDOW_STATE_CHANGED`
+
+#### [NEW] FocusStateTracker.kt
+- Per-package focus context, clears on package switch
+
+#### [NEW] ScreenSnapshotExtractor.kt
+- Walks root window's accessibility tree
+- Collects: screenTexts (max 30), clickableElements (with resourceId), editableFields
+
+#### [NEW] SessionTracker.kt
+- Groups events into sessions by time gap + app change
+
+#### [MODIFY] EventRecord.kt (→ RichEventRecord.kt)
+- Add: sessionId, appCategory, semanticAction, resourceId, screenTexts, clickableElements, editableFields, screenName
+
+#### [MODIFY] EventEntity.kt
+- Mirror schema changes, add JSON column for lists
+
+#### [MODIFY] EventRepositoryImpl.kt + EventDao.kt
+- Update queries for new schema
+
+#### [MODIFY] server/models/Event.js
+- Mirror MongoDB schema with all new fields + indexes
+
+#### [MODIFY] server/routes/events.js
+- Accept and store the new richer event format
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Q1: Screen snapshot scope** — Should we snapshot every `WINDOW_STATE_CHANGED` (may include Settings, notifications) or only whitelisted apps (RedBus, Uber, Zomato)? Whitelisting reduces noise and CPU cost.
+
+> [!IMPORTANT]
+> **Q2: `fieldLabel` vs `fieldHint`** — Should we drop `fieldLabel` entirely and only keep `fieldHint`? The V2 data shows `fieldLabel` is always wrong (it reflects current text value, not the field's label). I recommend dropping it and using only `fieldHint` + `contentDescription`.
+
+> [!NOTE]
+> **Q3: Text-change strategy** — Currently we emit one event per debounce window. A better approach: capture the **final** value only on `VIEW_FOCUSED` leaving the field (detected via focus moving to another field). Should we implement this?
+
+## Verification Plan
+
+After implementation:
+1. Open RedBus → search Hyderabad → Vijayawada → verify `screenTexts` contains both cities
+2. Type in a field → verify `fieldHint` is the placeholder (e.g. "From City"), not the typed text
+3. Switch from Reddit to RedBus → verify RedBus events contain zero Reddit metadata
+4. Export JSON → verify `sessionId` groups the RedBus journey correctly
+5. Tap "Continue" button → verify `resourceId` is captured
