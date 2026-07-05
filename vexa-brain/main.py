@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from config import settings
-from services import mongodb_service
-from routers import chat, action
+from services import mongodb_service, knowledge_service
+from routers import chat, action, knowledge
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -16,6 +16,12 @@ import agents  # noqa: ensures submodule init
 async def lifespan(app: FastAPI):
     # Startup
     await mongodb_service.connect(settings.mongodb_uri, settings.mongodb_db_name)
+
+    # Initialize OKF knowledge service
+    knowledge_service.init()
+    stats = knowledge_service.get_stats()
+    logger.info(f"OKF Knowledge Base: {stats['total_nodes']} nodes, {stats['total_tags']} tags, domains={stats['domains']}")
+
     logger.info("Vexa Brain started ✓")
     yield
     # Shutdown
@@ -25,8 +31,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Vexa Brain",
-    description="AI engine for personal phone automation. The phone acts — Vexa thinks.",
-    version="1.0.0",
+    description="AI engine for personal phone automation with self-learning OKF knowledge base. The phone acts — Vexa thinks.",
+    version="2.0.0",
     lifespan=lifespan
 )
 
@@ -41,11 +47,23 @@ app.add_middleware(
 # Routes
 app.include_router(chat.router, prefix="/api")
 app.include_router(action.router, prefix="/api")
+app.include_router(knowledge.router, prefix="/api")
 
 
 @app.get("/")
 async def root():
-    return {"name": "Vexa Brain", "status": "running", "version": "1.0.0"}
+    return {
+        "name": "Vexa Brain",
+        "status": "running",
+        "version": "2.0.0",
+        "architecture": "OKF (Open Knowledge Format)",
+        "features": [
+            "Self-learning knowledge base",
+            "Personalized response matching",
+            "Phone automation (action steps)",
+            "Behavioral context from phone observation"
+        ]
+    }
 
 
 if __name__ == "__main__":

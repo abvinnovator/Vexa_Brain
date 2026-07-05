@@ -1,7 +1,9 @@
 import uuid
+import asyncio
 from fastapi import APIRouter, HTTPException
 from models.request_models import ChatRequest, ChatResponse, ActionPlan, ActionStep, VexaMemory
 from agents import memory_agent, planner_agent
+from services import learning_service
 import logging
 
 router = APIRouter()
@@ -15,9 +17,13 @@ async def chat(request: ChatRequest):
     
     Flow:
       1. Build VexaMemory from request
-      2. MemoryAgent enriches with MongoDB behavioral context
+      2. MemoryAgent enriches with:
+         - MongoDB behavioral context (UNCHANGED)
+         - OKF knowledge retrieval (NEW)
+         - Personality prompt (NEW)
       3. PlannerAgent generates intent + action plan from LLM
       4. Return structured ChatResponse to Android app
+      5. Post-conversation learning (async, non-blocking) (NEW)
     """
     logger.info(f"Chat request from user={request.userId}: {request.prompt[:60]}...")
 
@@ -29,7 +35,7 @@ async def chat(request: ChatRequest):
     )
 
     # --- Agent Pipeline ---
-    memory = await memory_agent.enrich(memory)   # Step 1: build behavioral context
+    memory = await memory_agent.enrich(memory)   # Step 1: build context (behavioral + OKF + personality)
     memory = await planner_agent.plan(memory)    # Step 2: plan + format action steps
 
     if memory.error and not memory.action_steps:
@@ -67,11 +73,26 @@ async def chat(request: ChatRequest):
             requiresUserConfirmation=has_confirmation
         )
 
+    # --- Post-conversation Learning (async, non-blocking) ---
+    # Fire-and-forget: learn from this conversation turn without blocking the response
+    asyncio.create_task(
+        _learn_from_conversation(request.prompt, memory.reply, memory.intent)
+    )
+
     return ChatResponse(
         reply=memory.reply,
         actionPlan=action_plan,
         isAction=action_plan is not None
     )
+
+
+async def _learn_from_conversation(user_prompt: str, bot_reply: str, intent: str):
+    """Background task: extract and store new knowledge from this conversation."""
+    try:
+        await learning_service.process_conversation(user_prompt, bot_reply, intent)
+    except Exception as e:
+        # Learning should NEVER crash — log and move on
+        logger.error(f"Post-conversation learning error: {e}")
 
 
 @router.get("/health")

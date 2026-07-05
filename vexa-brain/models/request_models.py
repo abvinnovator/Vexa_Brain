@@ -39,6 +39,9 @@ class VexaMemory(BaseModel):
     raw_prompt: str
     conversation_history: List[Dict[str, str]] = []
     behavioral_context: str = ""        # built by MemoryAgent
+    knowledge_context: str = ""         # OKF-retrieved relevant knowledge
+    communication_profile: str = ""     # user's speaking style/tone
+    personality_prompt: str = ""        # dynamic personality instructions
     intent: str = "CONVERSATION"        # detected by PlannerAgent
     action_steps: List[Dict] = []       # built by ActionAgent
     reply: str = ""                     # natural language response
@@ -72,3 +75,18 @@ class RecoveryResponse(BaseModel):
     action: Optional[ActionStep] = None  # The single recovery step
     abort: bool = False                  # True if unrecoverable
     error: Optional[str] = None
+
+# ── Interactive Agent Models ──
+
+class NextActionRequest(BaseModel):
+    userId: str
+    goal: str
+    snapshot: ScreenSnapshot
+    previousAction: Optional[str] = None
+
+class NextActionResponse(BaseModel):
+    action: Optional[ActionStep] = None
+    isDone: bool = False
+    requiresUserConfirmation: bool = False
+    error: Optional[str] = None
+

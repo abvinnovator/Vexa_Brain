@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pathlib import Path
 
 class Settings(BaseSettings):
     groq_api_key: str
@@ -10,6 +11,9 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     debug: bool = True
+
+    # Knowledge base config
+    knowledge_base_dir: str = str(Path(__file__).parent / "knowledge")
 
     class Config:
         env_file = ".env"

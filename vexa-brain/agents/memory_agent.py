@@ -1,4 +1,4 @@
-from services import mongodb_service
+from services import mongodb_service, knowledge_service, personality_service
 from models.request_models import VexaMemory
 from datetime import datetime
 import logging
@@ -27,23 +27,27 @@ APP_CATEGORIES = {
 
 async def enrich(memory: VexaMemory) -> VexaMemory:
     """
-    MemoryAgent: Queries MongoDB to build behavioral context.
-    Attaches context to memory.behavioral_context.
-    """
-    try:
-        uid = memory.user_id
+    MemoryAgent: Builds context from multiple sources.
 
-        # 1. Top apps by usage
+    1. MongoDB behavioral data (phone observation — UNCHANGED)
+    2. OKF knowledge retrieval (NEW — smart, relevant-only)
+    3. Personality prompt (NEW — dynamic style matching)
+    """
+    uid = memory.user_id
+
+    # ── 1. Behavioral context from MongoDB (UNCHANGED) ──
+    try:
+        # Top apps by usage
         app_usage = await mongodb_service.get_app_usage_frequency(uid, days=7)
         top_apps = [
             f"{a['appName']} ({a['count']} events)"
             for a in app_usage[:5]
         ]
 
-        # 2. Uber destinations
+        # Uber destinations
         uber_destinations = await mongodb_service.get_uber_destinations(uid)
 
-        # 3. Recent sessions summary
+        # Recent sessions summary
         sessions = await mongodb_service.get_recent_sessions(uid, limit=3)
         session_summaries = []
         for s in sessions:
@@ -51,16 +55,15 @@ async def enrich(memory: VexaMemory) -> VexaMemory:
             count = s.get("eventCount", 0)
             session_summaries.append(f"Session with {apps} ({count} events)")
 
-        # 4. Food/grocery searches
+        # Food/grocery searches
         blinkit_searches = await mongodb_service.get_typed_searches(uid, "com.grofers.customerapp")
         zomato_searches  = await mongodb_service.get_typed_searches(uid, "com.zomato.android")
 
-        # 5. Recent raw events (for deep context)
+        # Recent raw events (for deep context)
         recent = await mongodb_service.get_recent_events(uid, hours=24)
         recent_summary = _summarize_recent_events(recent)
 
-        memory.behavioral_context = f"""
-USER BEHAVIORAL PROFILE (from phone observation data):
+        memory.behavioral_context = f"""USER BEHAVIORAL PROFILE (from phone observation data):
 
 Top apps used this week:
 {chr(10).join(f'  - {a}' for a in top_apps) or '  - No data yet'}
@@ -78,14 +81,32 @@ Recent activity summary (last 24h):
 Recent sessions:
 {chr(10).join(f'  - {s}' for s in session_summaries) or '  - No recent sessions'}
 
-Current time: {datetime.now().strftime('%A %I:%M %p')}
-""".strip()
+Current time: {datetime.now().strftime('%A %I:%M %p')}""".strip()
 
-        logger.info(f"MemoryAgent: context built for user {uid}")
+        logger.info(f"MemoryAgent: behavioral context built for user {uid}")
 
     except Exception as e:
-        logger.error(f"MemoryAgent error: {e}")
+        logger.error(f"MemoryAgent behavioral context error: {e}")
         memory.behavioral_context = "No behavioral context available."
+
+    # ── 2. OKF Knowledge Retrieval (NEW) ──
+    try:
+        memory.knowledge_context = await knowledge_service.query_relevant(
+            memory.raw_prompt, uid
+        )
+        memory.communication_profile = await knowledge_service.get_communication_profile()
+        logger.info(f"MemoryAgent: OKF knowledge retrieved ({len(memory.knowledge_context)} chars)")
+    except Exception as e:
+        logger.error(f"MemoryAgent OKF error: {e}")
+        memory.knowledge_context = ""
+        memory.communication_profile = ""
+
+    # ── 3. Personality Prompt (NEW) ──
+    try:
+        memory.personality_prompt = await personality_service.build_personality_prompt()
+    except Exception as e:
+        logger.error(f"MemoryAgent personality error: {e}")
+        memory.personality_prompt = ""
 
     return memory
 
