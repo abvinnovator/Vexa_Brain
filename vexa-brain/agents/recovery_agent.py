@@ -58,7 +58,7 @@ What is the single best recovery action to take?
     ]
 
     try:
-        raw = await llm_service.chat(messages, json_mode=True)
+        raw = await llm_service.chat(messages, json_mode=True, agent_name="recovery")
         data = json.loads(raw)
         
         is_abort = data.get("abort", False)

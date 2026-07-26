@@ -113,7 +113,7 @@ async def _extract_facts(user_msg: str, bot_reply: str) -> List[tuple]:
             {"role": "user", "content": prompt}
         ]
 
-        response = await llm_service.chat(messages, temperature=0.1, max_tokens=300)
+        response = await llm_service.chat(messages, temperature=0.1, max_tokens=300, agent_name="learning")
         response = response.strip()
 
         if "NOTHING_NEW" in response:
@@ -160,7 +160,7 @@ If nothing distinctive, output: NOTHING_NEW
 Otherwise output ONLY: PATTERN: <the specific pattern>"""}
         ]
 
-        response = await llm_service.chat(messages, temperature=0.1, max_tokens=100)
+        response = await llm_service.chat(messages, temperature=0.1, max_tokens=100, agent_name="learning")
 
         if "NOTHING_NEW" in response:
             return

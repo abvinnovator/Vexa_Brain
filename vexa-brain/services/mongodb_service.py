@@ -1,6 +1,18 @@
+"""
+MongoDB service — Agent-focused data layer.
+
+v3.0: Removed all event-observation queries (no longer tracking phone events).
+Now stores and retrieves saved agents — reusable automation sequences
+that can be replayed without AI calls.
+
+Collections:
+  - agents: Saved agent step sequences
+"""
+
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
+from bson import ObjectId
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,90 +27,166 @@ async def connect(uri: str, db_name: str):
     _db = _client[db_name]
     logger.info(f"Connected to MongoDB: {db_name}")
 
+    # Ensure indexes on the agents collection
+    await _db.agents.create_index([("userId", 1), ("triggerPrompt", 1)])
+    await _db.agents.create_index([("userId", 1), ("intent", 1)])
+    await _db.agents.create_index([("userId", 1), ("createdAt", -1)])
+    logger.info("MongoDB indexes ensured on 'agents' collection")
+
 
 async def disconnect():
     if _client:
         _client.close()
 
 
-async def get_recent_events(user_id: str, hours: int = 48) -> List[Dict]:
-    """Fetch recent accessibility events for behavioral context."""
+# ── Agent CRUD ──────────────────────────────────────────────
+
+async def save_agent(
+    user_id: str,
+    agent_name: str,
+    trigger_prompt: str,
+    intent: str,
+    steps: List[Dict[str, Any]],
+) -> str:
+    """Save a new agent (reusable automation sequence) to MongoDB.
+
+    Returns the agent ID.
+    """
+    if _db is None:
+        raise Exception("MongoDB not connected")
+
+    doc = {
+        "userId": user_id,
+        "agentName": agent_name,
+        "triggerPrompt": trigger_prompt,
+        "normalizedPrompt": _normalize(trigger_prompt),
+        "intent": intent,
+        "steps": steps,
+        "usageCount": 0,
+        "createdAt": datetime.utcnow().isoformat(),
+        "lastUsedAt": datetime.utcnow().isoformat(),
+    }
+    result = await _db.agents.insert_one(doc)
+    agent_id = str(result.inserted_id)
+    logger.info(f"Agent saved: '{agent_name}' (id={agent_id}) for user {user_id}")
+    return agent_id
+
+
+async def get_agents(user_id: str) -> List[Dict]:
+    """Get all saved agents for a user, most recent first."""
     if _db is None:
         return []
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
-    cutoff_ms = int(cutoff.timestamp() * 1000)
 
-    cursor = _db.events.find(
-        {"userId": user_id, "timestamp": {"$gte": cutoff_ms}},
-        # Only fetch fields needed for context (not screenTexts bloat)
-        {"packageName": 1, "appName": 1, "eventType": 1,
-         "typedText": 1, "fieldHint": 1, "buttonLabel": 1,
-         "screenTitle": 1, "screenName": 1, "timestamp": 1,
-         "sessionId": 1, "screenTexts": 1, "_id": 0}
-    ).sort("timestamp", -1).limit(200)
+    cursor = _db.agents.find(
+        {"userId": user_id},
+        {"_id": 1, "agentName": 1, "triggerPrompt": 1, "intent": 1,
+         "usageCount": 1, "createdAt": 1, "lastUsedAt": 1,
+         "steps": 1}
+    ).sort("createdAt", -1)
 
-    return await cursor.to_list(length=200)
+    agents = []
+    async for doc in cursor:
+        doc["agentId"] = str(doc.pop("_id"))
+        agents.append(doc)
+    return agents
 
 
-async def get_app_usage_frequency(user_id: str, days: int = 7) -> List[Dict]:
-    """Returns top apps by event count over the last N days."""
+async def get_agent_by_id(agent_id: str) -> Optional[Dict]:
+    """Get a single agent by its MongoDB ID."""
     if _db is None:
-        return []
-    cutoff_ms = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
-
-    pipeline = [
-        {"$match": {"userId": user_id, "timestamp": {"$gte": cutoff_ms}}},
-        {"$group": {"_id": "$packageName", "appName": {"$first": "$appName"},
-                    "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 10}
-    ]
-    cursor = _db.events.aggregate(pipeline)
-    return await cursor.to_list(length=10)
+        return None
+    try:
+        doc = await _db.agents.find_one({"_id": ObjectId(agent_id)})
+        if doc:
+            doc["agentId"] = str(doc.pop("_id"))
+        return doc
+    except Exception:
+        return None
 
 
-async def get_uber_destinations(user_id: str) -> List[str]:
-    """Extract recent Uber destination searches from events."""
+async def match_agent(user_id: str, prompt: str) -> Optional[Dict]:
+    """Find a saved agent matching the given prompt.
+
+    Uses normalized prompt for fuzzy matching.
+    Returns the best match (highest usage count) or None.
+    """
     if _db is None:
-        return []
-    cursor = _db.events.find(
-        {"userId": user_id, "packageName": "com.ubercab",
-         "typedText": {"$exists": True, "$ne": None}},
-        {"typedText": 1, "_id": 0}
-    ).sort("timestamp", -1).limit(20)
-    events = await cursor.to_list(length=20)
-    return list({e["typedText"] for e in events if e.get("typedText")})
+        return None
+
+    normalized = _normalize(prompt)
+
+    # Try exact normalized match first
+    doc = await _db.agents.find_one(
+        {"userId": user_id, "normalizedPrompt": normalized},
+        sort=[("usageCount", -1)]
+    )
+
+    if doc:
+        doc["agentId"] = str(doc.pop("_id"))
+        return doc
+
+    # Try keyword-based partial match
+    keywords = normalized.split()
+    if len(keywords) >= 2:
+        regex_pattern = ".*".join(keywords[:3])  # first 3 keywords
+        doc = await _db.agents.find_one(
+            {"userId": user_id, "normalizedPrompt": {"$regex": regex_pattern}},
+            sort=[("usageCount", -1)]
+        )
+        if doc:
+            doc["agentId"] = str(doc.pop("_id"))
+            return doc
+
+    return None
 
 
-async def get_recent_sessions(user_id: str, limit: int = 5) -> List[Dict]:
-    """Get recent session summaries for workflow reconstruction."""
+async def update_agent_usage(agent_id: str):
+    """Increment usage count and update last-used timestamp."""
     if _db is None:
-        return []
-    pipeline = [
-        {"$match": {"userId": user_id}},
-        {"$sort": {"timestamp": -1}},
-        {"$group": {
-            "_id": "$sessionId",
-            "apps": {"$addToSet": "$appName"},
-            "startTime": {"$min": "$timestamp"},
-            "endTime": {"$max": "$timestamp"},
-            "eventCount": {"$sum": 1}
-        }},
-        {"$sort": {"startTime": -1}},
-        {"$limit": limit}
-    ]
-    cursor = _db.events.aggregate(pipeline)
-    return await cursor.to_list(length=limit)
+        return
+    try:
+        await _db.agents.update_one(
+            {"_id": ObjectId(agent_id)},
+            {
+                "$inc": {"usageCount": 1},
+                "$set": {"lastUsedAt": datetime.utcnow().isoformat()}
+            }
+        )
+    except Exception as e:
+        logger.error(f"Failed to update agent usage: {e}")
 
 
-async def get_typed_searches(user_id: str, package_name: str) -> List[str]:
-    """Get text typed in a specific app (e.g. food searches in Blinkit)."""
+async def delete_agent(agent_id: str) -> bool:
+    """Delete a saved agent by ID."""
     if _db is None:
-        return []
-    cursor = _db.events.find(
-        {"userId": user_id, "packageName": package_name,
-         "typedText": {"$exists": True, "$ne": None}},
-        {"typedText": 1, "_id": 0}
-    ).sort("timestamp", -1).limit(20)
-    events = await cursor.to_list(length=20)
-    return list({e["typedText"] for e in events if e.get("typedText")})
+        return False
+    try:
+        result = await _db.agents.delete_one({"_id": ObjectId(agent_id)})
+        return result.deleted_count > 0
+    except Exception:
+        return False
+
+
+async def get_agent_summary(user_id: str) -> str:
+    """Build a text summary of saved agents for context injection into prompts.
+
+    Returns a string listing all saved agents the user has.
+    """
+    agents = await get_agents(user_id)
+    if not agents:
+        return "No saved agents yet."
+
+    lines = [f"User has {len(agents)} saved agent(s):"]
+    for a in agents[:10]:
+        lines.append(
+            f"  - \"{a['agentName']}\" (intent={a['intent']}, "
+            f"used {a['usageCount']} times, "
+            f"{len(a.get('steps', []))} steps)"
+        )
+    return "\n".join(lines)
+
+
+def _normalize(text: str) -> str:
+    """Normalize a prompt string for matching — lowercase, strip punctuation."""
+    import re
+    return re.sub(r"[^a-z0-9\s]", "", text.lower().strip())

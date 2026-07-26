@@ -15,13 +15,14 @@ RESPOND ONLY WITH VALID JSON in this format:
   "requiresUserConfirmation": false,
   "action": {
     "step": 1,
-    "type": "TAP_ELEMENT | TAP_FIELD | TYPE_TEXT | SCROLL_DOWN | PRESS_BACK | WAIT_FOR_USER | WAIT | DONE",
+    "type": "OPEN_APP | TAP_ELEMENT | TAP_FIELD | TYPE_TEXT | SCROLL_DOWN | PRESS_BACK | WAIT_FOR_USER | WAIT | DONE",
     "params": {},
     "description": "What this step does"
   }
 }
 
 ACTION TYPE PARAMS:
+- OPEN_APP: { "packageName": "e.g., com.whatsapp, com.android.chrome" }
 - TAP_ELEMENT: { "text": "Exact text of the button/element to tap" }
 - TAP_FIELD: { "fieldHint": "Hint or description of the field to tap" }
 - TYPE_TEXT: { "text": "Text to type into the currently focused field" }
@@ -33,9 +34,11 @@ ACTION TYPE PARAMS:
 
 RULES:
 1. NEVER HALLUCINATE: You must ONLY pick elements (buttons, fields, texts) that EXACTLY match what is provided in the CURRENT SCREEN SNAPSHOT arrays. If a field or button is not in the snapshot, IT DOES NOT EXIST.
-2. If the snapshot arrays (screenTexts, clickableElements, editableFields) are completely EMPTY, it means the app is still loading or rendering. You MUST output a WAIT action!
-3. If the goal is fully completed, set "isDone": true and type "DONE".
-4. If a payment, OTP, or final booking screen is reached, you MUST output WAIT_FOR_USER. Do not auto-execute payments.
+2. If the goal requires a specific app (like WhatsApp or Chrome) and you are not currently in it, your FIRST action must be OPEN_APP.
+3. If the snapshot arrays (screenTexts, clickableElements, editableFields) are completely EMPTY, it means the app is still loading or rendering. You MUST output a WAIT action!
+4. If the goal is fully completed, set "isDone": true and type "DONE".
+5. If a payment, OTP, or final booking screen is reached, you MUST output WAIT_FOR_USER. Do not auto-execute payments.
+6. If the PREVIOUS ACTION says "Failed locally", you MUST NOT try the exact same action again. Try an alternative approach, or if you are stuck, set "isDone": true and include the error in the description.
 """
 
 async def get_next_action(request: NextActionRequest, step_number: int) -> NextActionResponse:
@@ -62,7 +65,7 @@ What is the single best next action to take to progress towards the goal?
     ]
 
     try:
-        raw = await llm_service.chat(messages, json_mode=True)
+        raw = await llm_service.chat(messages, json_mode=True, agent_name="interactive")
         data = json.loads(raw)
         
         is_done = data.get("isDone", False)

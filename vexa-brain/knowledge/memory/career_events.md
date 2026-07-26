@@ -1,7 +1,7 @@
 ---
 confidence: 0.9
 description: Job changes, interviews, career milestones
-last_updated: '2026-07-05'
+last_updated: '2026-07-26'
 source: learned
 tags:
 - career
@@ -35,3 +35,13 @@ type: knowledge
 - works at Cognizant
 - User is starting their Day 1 of Cognizant FTE training.
 - User's office is located in Cognizant H4 building, Hitec City.
+- User works with Google Cloud and Google Workspace
+- User is undergoing training for foundations of Google Workspace at Cognizant.
+- User will be moving on to specialization training for Dedicated Real-Time Communication starting July 22.
+- User applied for AI Full-Stack Engineer role at Cognizant
+- ACE refers to the AI Full-Stack Engineer role at Cognizant
+- User works at Cognizant and eats breakfast and lunch at the office canteen.
+- Vamsi works with Google Cloud and Google Workspace
+- Program Analyst Trainee at Cognizant, focusing on GCP and Google Workspace support
+- User is working on a support role for Google Meet, Chat, and Voice projects.
+- User has a referral at Cognizant who works on a Google project.

@@ -105,7 +105,7 @@ async def plan(memory: VexaMemory) -> VexaMemory:
         messages = [messages[0]] + memory.conversation_history + [messages[1]]
 
     try:
-        raw = await llm_service.chat(messages, json_mode=True)
+        raw = await llm_service.chat(messages, json_mode=True, agent_name="planner")
         data = json.loads(raw)
 
         memory.intent     = data.get("intent", "CONVERSATION")

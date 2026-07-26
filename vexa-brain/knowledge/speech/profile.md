@@ -1,11 +1,16 @@
 ---
-type: knowledge
-title: "Vamsi's Speech Profile"
-description: "Speaking patterns, slang, Telugu phrases, communication style"
-tags: [speech, style, telugu, patterns, tone]
-last_updated: "2026-07-02"
 confidence: 0.8
+description: Speaking patterns, slang, Telugu phrases, communication style
+last_updated: '2026-07-26'
 source: learned
+tags:
+- speech
+- style
+- telugu
+- patterns
+- tone
+title: Vamsi's Speech Profile
+type: knowledge
 ---
 
 # Speech Profile
@@ -35,3 +40,5 @@ _Automatically updated as Vexa learns Vamsi's communication patterns._
 - Uses short sentences when giving instructions
 - Prefers specificity — exact dates, exact names
 - Gets frustrated by vague or generic responses
+- uses "u" instead of "you" and includes 🫪 emoji
+- Uses informal abbreviations like "u", "tpo", "stdnts" and casual filler "hmm".

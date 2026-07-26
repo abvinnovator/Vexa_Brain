@@ -3,9 +3,9 @@ from pathlib import Path
 
 class Settings(BaseSettings):
     groq_api_key: str
-    mongodb_uri: str = "mongodb://localhost:27017/observeai"
-    mongodb_db_name: str = "observeai"
-    llm_model: str = "llama-3.3-70b-versatile"
+    mongodb_uri: str = "mongodb://localhost:27017/vexa"
+    mongodb_db_name: str = "vexa"
+    llm_model: str = "groq/compound-mini"
     llm_temperature: float = 0.3
     llm_max_tokens: int = 2048
     host: str = "0.0.0.0"
@@ -15,8 +15,14 @@ class Settings(BaseSettings):
     # Knowledge base config
     knowledge_base_dir: str = str(Path(__file__).parent / "knowledge")
 
+    # LangSmith tracing config
+    langsmith_api_key: str = ""
+    langsmith_project: str = "XA"
+    langsmith_tracing: bool = True
+
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"
 
 settings = Settings()

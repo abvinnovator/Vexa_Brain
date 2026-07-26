@@ -1,3 +1,10 @@
+"""
+MemoryAgent — Builds enriched context from multiple sources.
+
+v3.0: Removed phone event behavioral context (no longer tracking events).
+Now uses saved agent summary instead of event-based behavioral data.
+"""
+
 from services import mongodb_service, knowledge_service, personality_service
 from models.request_models import VexaMemory
 from datetime import datetime
@@ -5,91 +12,33 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Known package → app category mapping
-APP_CATEGORIES = {
-    "com.ubercab": "Ride",
-    "com.olacabs.customer": "Ride",
-    "com.rapido.passenger": "Ride",
-    "com.grofers.customerapp": "Grocery",
-    "com.zomato.android": "Food",
-    "app.swiggy.android": "Food",
-    "in.redbus.android": "Travel",
-    "com.makemytrip": "Travel",
-    "com.reddit.frontpage": "Social",
-    "com.instagram.android": "Social",
-    "com.whatsapp": "Messaging",
-    "com.google.android.youtube": "Entertainment",
-    "com.spotify.music": "Entertainment",
-    "com.phonepe.app": "Payments",
-    "com.google.android.apps.nbu.paisa.user": "Payments",
-}
-
 
 async def enrich(memory: VexaMemory) -> VexaMemory:
     """
     MemoryAgent: Builds context from multiple sources.
 
-    1. MongoDB behavioral data (phone observation — UNCHANGED)
-    2. OKF knowledge retrieval (NEW — smart, relevant-only)
-    3. Personality prompt (NEW — dynamic style matching)
+    1. Saved agents summary (replaces old MongoDB behavioral data)
+    2. OKF knowledge retrieval (smart, relevant-only)
+    3. Personality prompt (dynamic style matching)
     """
     uid = memory.user_id
 
-    # ── 1. Behavioral context from MongoDB (UNCHANGED) ──
+    # ── 1. Agent context (replaces old behavioral context) ──
     try:
-        # Top apps by usage
-        app_usage = await mongodb_service.get_app_usage_frequency(uid, days=7)
-        top_apps = [
-            f"{a['appName']} ({a['count']} events)"
-            for a in app_usage[:5]
-        ]
+        agent_summary = await mongodb_service.get_agent_summary(uid)
+        memory.behavioral_context = f"""USER AGENT PROFILE:
 
-        # Uber destinations
-        uber_destinations = await mongodb_service.get_uber_destinations(uid)
-
-        # Recent sessions summary
-        sessions = await mongodb_service.get_recent_sessions(uid, limit=3)
-        session_summaries = []
-        for s in sessions:
-            apps = ", ".join(s.get("apps", []))
-            count = s.get("eventCount", 0)
-            session_summaries.append(f"Session with {apps} ({count} events)")
-
-        # Food/grocery searches
-        blinkit_searches = await mongodb_service.get_typed_searches(uid, "com.grofers.customerapp")
-        zomato_searches  = await mongodb_service.get_typed_searches(uid, "com.zomato.android")
-
-        # Recent raw events (for deep context)
-        recent = await mongodb_service.get_recent_events(uid, hours=24)
-        recent_summary = _summarize_recent_events(recent)
-
-        memory.behavioral_context = f"""USER BEHAVIORAL PROFILE (from phone observation data):
-
-Top apps used this week:
-{chr(10).join(f'  - {a}' for a in top_apps) or '  - No data yet'}
-
-Recent Uber/ride destinations typed:
-{chr(10).join(f'  - {d}' for d in uber_destinations[:5]) or '  - No ride history'}
-
-Recent food/grocery searches:
-  Blinkit: {', '.join(blinkit_searches[:5]) or 'none'}
-  Zomato: {', '.join(zomato_searches[:5]) or 'none'}
-
-Recent activity summary (last 24h):
-{recent_summary}
-
-Recent sessions:
-{chr(10).join(f'  - {s}' for s in session_summaries) or '  - No recent sessions'}
+{agent_summary}
 
 Current time: {datetime.now().strftime('%A %I:%M %p')}""".strip()
 
-        logger.info(f"MemoryAgent: behavioral context built for user {uid}")
+        logger.info(f"MemoryAgent: agent context built for user {uid}")
 
     except Exception as e:
-        logger.error(f"MemoryAgent behavioral context error: {e}")
-        memory.behavioral_context = "No behavioral context available."
+        logger.error(f"MemoryAgent agent context error: {e}")
+        memory.behavioral_context = "No saved agents available."
 
-    # ── 2. OKF Knowledge Retrieval (NEW) ──
+    # ── 2. OKF Knowledge Retrieval ──
     try:
         memory.knowledge_context = await knowledge_service.query_relevant(
             memory.raw_prompt, uid
@@ -101,7 +50,7 @@ Current time: {datetime.now().strftime('%A %I:%M %p')}""".strip()
         memory.knowledge_context = ""
         memory.communication_profile = ""
 
-    # ── 3. Personality Prompt (NEW) ──
+    # ── 3. Personality Prompt ──
     try:
         memory.personality_prompt = await personality_service.build_personality_prompt()
     except Exception as e:
@@ -109,32 +58,3 @@ Current time: {datetime.now().strftime('%A %I:%M %p')}""".strip()
         memory.personality_prompt = ""
 
     return memory
-
-
-def _summarize_recent_events(events: list) -> str:
-    """Collapse raw events into a readable summary."""
-    if not events:
-        return "  No recent activity"
-
-    app_switches = []
-    typed_inputs = []
-    button_taps = []
-
-    for e in events[:50]:
-        pkg = e.get("appName") or e.get("packageName", "")
-        etype = e.get("eventType", "")
-        if etype == "WINDOW_STATE_CHANGED" and e.get("screenTitle"):
-            app_switches.append(f"{pkg} → {e['screenTitle']}")
-        elif etype == "VIEW_TEXT_CHANGED" and e.get("typedText"):
-            hint = e.get("fieldHint", "field")
-            app_switches.append(f"Typed '{e['typedText']}' in [{hint}] in {pkg}")
-        elif etype == "VIEW_CLICKED" and e.get("buttonLabel"):
-            button_taps.append(f"Tapped '{e['buttonLabel']}' in {pkg}")
-
-    lines = []
-    if app_switches:
-        lines.append("  Screens visited: " + "; ".join(app_switches[:5]))
-    if button_taps:
-        lines.append("  Buttons tapped: " + "; ".join(button_taps[:5]))
-
-    return "\n".join(lines) if lines else "  Light activity"

@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from config import settings
-from services import mongodb_service, knowledge_service
-from routers import chat, action, knowledge
+from services import mongodb_service, knowledge_service, tracing_service
+from routers import chat, action, knowledge, agent
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -22,6 +22,9 @@ async def lifespan(app: FastAPI):
     stats = knowledge_service.get_stats()
     logger.info(f"OKF Knowledge Base: {stats['total_nodes']} nodes, {stats['total_tags']} tags, domains={stats['domains']}")
 
+    # Initialize LangSmith tracing
+    tracing_service.init()
+
     logger.info("Vexa Brain started ✓")
     yield
     # Shutdown
@@ -32,7 +35,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Vexa Brain",
     description="AI engine for personal phone automation with self-learning OKF knowledge base. The phone acts — Vexa thinks.",
-    version="2.0.0",
+    version="3.0.0",
     lifespan=lifespan
 )
 
@@ -48,6 +51,7 @@ app.add_middleware(
 app.include_router(chat.router, prefix="/api")
 app.include_router(action.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api")
+app.include_router(agent.router, prefix="/api")
 
 
 @app.get("/")
@@ -55,13 +59,14 @@ async def root():
     return {
         "name": "Vexa Brain",
         "status": "running",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "architecture": "OKF (Open Knowledge Format)",
         "features": [
             "Self-learning knowledge base",
             "Personalized response matching",
             "Phone automation (action steps)",
-            "Behavioral context from phone observation"
+            "Saved agents (replay without AI)",
+            "LLM observability (LangSmith)"
         ]
     }
 

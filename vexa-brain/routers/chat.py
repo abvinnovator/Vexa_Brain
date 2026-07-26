@@ -3,7 +3,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException
 from models.request_models import ChatRequest, ChatResponse, ActionPlan, ActionStep, VexaMemory
 from agents import memory_agent, planner_agent
-from services import learning_service
+from services import learning_service, mongodb_service
 import logging
 
 router = APIRouter()
@@ -14,18 +14,55 @@ logger = logging.getLogger(__name__)
 async def chat(request: ChatRequest):
     """
     Main Vexa Brain endpoint.
-    
+
     Flow:
-      1. Build VexaMemory from request
-      2. MemoryAgent enriches with:
-         - MongoDB behavioral context (UNCHANGED)
-         - OKF knowledge retrieval (NEW)
-         - Personality prompt (NEW)
-      3. PlannerAgent generates intent + action plan from LLM
-      4. Return structured ChatResponse to Android app
-      5. Post-conversation learning (async, non-blocking) (NEW)
+      1. Check if a saved agent matches this prompt (skip AI if found)
+      2. Build VexaMemory from request
+      3. MemoryAgent enriches with:
+         - Saved agent context
+         - OKF knowledge retrieval
+         - Personality prompt
+      4. PlannerAgent generates intent + action plan from LLM
+      5. Return structured ChatResponse to Android app
+      6. Post-conversation learning (async, non-blocking)
     """
     logger.info(f"Chat request from user={request.userId}: {request.prompt[:60]}...")
+
+    # ── Check for saved agent match (bypass AI) ──
+    try:
+        matched_agent = await mongodb_service.match_agent(request.userId, request.prompt)
+        if matched_agent:
+            steps = [
+                ActionStep(
+                    step=s.get("step", i + 1),
+                    type=s.get("type", "UNKNOWN"),
+                    params=s.get("params", {}),
+                    description=s.get("description", ""),
+                    requiresConfirmation=s.get("requiresConfirmation", False),
+                )
+                for i, s in enumerate(matched_agent.get("steps", []))
+            ]
+            action_plan = ActionPlan(
+                planId=str(uuid.uuid4()),
+                userPrompt=request.prompt,
+                intent=matched_agent.get("intent", "SAVED_AGENT"),
+                confidence=1.0,
+                actions=steps,
+                requiresUserConfirmation=any(s.requiresConfirmation for s in steps),
+            )
+            agent_name = matched_agent.get("agentName", "Saved Agent")
+            usage = matched_agent.get("usageCount", 0) + 1
+            logger.info(f"Saved agent match: '{agent_name}' — skipping AI, returning {len(steps)} steps")
+            return ChatResponse(
+                reply=f"🔄 Using saved agent \"{agent_name}\" (used {usage} times). Executing directly — no AI needed!",
+                actionPlan=action_plan,
+                isAction=True,
+                isSavedAgent=True,
+            )
+    except Exception as e:
+        logger.error(f"Agent match check failed (continuing with AI): {e}")
+
+    # ── No saved agent — use AI pipeline ──
 
     # Initialise shared memory
     memory = VexaMemory(
@@ -35,7 +72,7 @@ async def chat(request: ChatRequest):
     )
 
     # --- Agent Pipeline ---
-    memory = await memory_agent.enrich(memory)   # Step 1: build context (behavioral + OKF + personality)
+    memory = await memory_agent.enrich(memory)   # Step 1: build context (agent + OKF + personality)
     memory = await planner_agent.plan(memory)    # Step 2: plan + format action steps
 
     if memory.error and not memory.action_steps:

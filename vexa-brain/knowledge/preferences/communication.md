@@ -1,7 +1,7 @@
 ---
 confidence: 0.85
 description: How Vamsi prefers to receive information and interact
-last_updated: '2026-07-05'
+last_updated: '2026-07-13'
 source: learned
 tags:
 - preferences
@@ -25,3 +25,16 @@ type: knowledge
 - Appreciates when assistant connects answers to his tech background
 - Prefers specificity over vagueness
 - uses VS Code for development
+- User uses Chrome as their browser
+- The user prefers to listen to Telugu songs
+- prefers automation of tasks, such as searching for top-rated Telugu songs on YouTube, to be done correctly without unnecessary steps like clicking the microphone button.
+- submit query using keyboard instead of microphone
+- does not want information in action plan, prefers it in chat
+- User prefers to eat breakfast and lunch at the Cognizant office canteen rather than at their PG.
+- user wants a diet plan that works with their current shift timings
+- The user prefers to use WhatsApp for sending greetings.
+- The user prefers to send messages on WhatsApp
+- searching for information using Chrome
+- The user prefers to send messages via WhatsApp
+- prefers sending simple greetings on WhatsApp
+- prefers not to use an automation agent for sending simple greetings like "Hi" to brother

@@ -30,6 +30,7 @@ class ChatResponse(BaseModel):
     reply: str                              # natural language reply to user
     actionPlan: Optional[ActionPlan] = None # None if just a conversation, not an action
     isAction: bool = False                  # true if actionPlan is present
+    isSavedAgent: bool = False              # true if response came from a saved agent (no AI)
     error: Optional[str] = None
 
 
@@ -89,4 +90,40 @@ class NextActionResponse(BaseModel):
     isDone: bool = False
     requiresUserConfirmation: bool = False
     error: Optional[str] = None
+
+
+# ── Saved Agent Models ──
+
+class SaveAgentRequest(BaseModel):
+    userId: str
+    agentName: str
+    triggerPrompt: str          # the original user prompt
+    intent: str
+    steps: List[ActionStep]     # the full sequence of steps that worked
+
+class SaveAgentResponse(BaseModel):
+    agentId: str
+    message: str
+
+class SavedAgent(BaseModel):
+    agentId: str
+    agentName: str
+    triggerPrompt: str
+    intent: str
+    steps: List[ActionStep]
+    usageCount: int = 0
+    createdAt: str = ""
+    lastUsedAt: str = ""
+
+class AgentListResponse(BaseModel):
+    agents: List[SavedAgent]
+
+class AgentMatchRequest(BaseModel):
+    userId: str
+    prompt: str
+
+class AgentMatchResponse(BaseModel):
+    found: bool = False
+    agent: Optional[SavedAgent] = None
+
 
