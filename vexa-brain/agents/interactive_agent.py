@@ -5,59 +5,84 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are the Vexa Interactive Agent. You control an Android phone to complete a goal.
-You are given the user's overall GOAL, the PREVIOUS ACTION you took, and the CURRENT SCREEN SNAPSHOT.
-Your job is to decide the single best NEXT ACTION to take.
+SYSTEM_PROMPT = """You are Vexa Interactive Agent controlling an Android phone.
+Given GOAL, PREVIOUS ACTION, and SCREEN SNAPSHOT, output the SINGLE best NEXT ACTION as JSON:
 
-RESPOND ONLY WITH VALID JSON in this format:
 {
   "isDone": false,
   "requiresUserConfirmation": false,
   "action": {
     "step": 1,
-    "type": "OPEN_APP | TAP_ELEMENT | TAP_FIELD | TYPE_TEXT | SCROLL_DOWN | PRESS_BACK | WAIT_FOR_USER | WAIT | DONE",
+    "type": "OPEN_APP|TAP_ELEMENT|TAP_FIELD|TYPE_TEXT|SCROLL_DOWN|PRESS_BACK|WAIT_FOR_USER|WAIT|DONE",
     "params": {},
-    "description": "What this step does"
+    "description": "Short step summary"
   }
 }
 
-ACTION TYPE PARAMS:
-- OPEN_APP: { "packageName": "e.g., com.whatsapp, com.android.chrome" }
-- TAP_ELEMENT: { "text": "Exact text of the button/element to tap" }
-- TAP_FIELD: { "fieldHint": "Hint or description of the field to tap" }
-- TYPE_TEXT: { "text": "Text to type into the currently focused field" }
-- SCROLL_DOWN: { "times": 1 }
+PARAMS FORMAT:
+- OPEN_APP: {"packageName": "com.example.app"}
+- TAP_ELEMENT: {"text": "Exact element text"}
+- TAP_FIELD: {"fieldHint": "Hint or label"}
+- TYPE_TEXT: {"text": "String to type"}
+- SCROLL_DOWN: {"times": 1}
 - PRESS_BACK: {}
-- WAIT: { "durationMs": 3000 }
-- WAIT_FOR_USER: { "message": "Please confirm payment or details" }
-- DONE: {}
+- WAIT: {"durationMs": 3000}
+- WAIT_FOR_USER: {"message": "Reason"}
 
 RULES:
-1. NEVER HALLUCINATE: You must ONLY pick elements (buttons, fields, texts) that EXACTLY match what is provided in the CURRENT SCREEN SNAPSHOT arrays. If a field or button is not in the snapshot, IT DOES NOT EXIST.
-2. If the goal requires a specific app (like WhatsApp or Chrome) and you are not currently in it, your FIRST action must be OPEN_APP.
-3. If the snapshot arrays (screenTexts, clickableElements, editableFields) are completely EMPTY, it means the app is still loading or rendering. You MUST output a WAIT action!
-4. If the goal is fully completed, set "isDone": true and type "DONE".
-5. If a payment, OTP, or final booking screen is reached, you MUST output WAIT_FOR_USER. Do not auto-execute payments.
-6. If the PREVIOUS ACTION says "Failed locally", you MUST NOT try the exact same action again. Try an alternative approach, or if you are stuck, set "isDone": true and include the error in the description.
-"""
+1. ONLY tap elements present in SCREEN SNAPSHOT.
+2. If required app is not open, first action must be OPEN_APP.
+3. If snapshot is empty, output WAIT.
+4. If goal complete, set "isDone": true.
+5. For payment/OTP, output WAIT_FOR_USER.
+6. Never repeat an action that failed locally."""
+
+def _format_snapshot(snapshot) -> str:
+    """Compact snapshot formatter: deduplicates, truncates long text, caps array sizes."""
+    seen_texts = set()
+    compact_texts = []
+    for t in snapshot.screenTexts:
+        clean = (t or "").strip()[:50]
+        if clean and clean not in seen_texts:
+            seen_texts.add(clean)
+            compact_texts.append(clean)
+        if len(compact_texts) >= 12:
+            break
+
+    seen_clickables = set()
+    compact_clickables = []
+    for c in snapshot.clickableElements:
+        txt = (c.text or "").strip()[:50]
+        if txt and txt not in seen_clickables:
+            seen_clickables.add(txt)
+            elem = {"text": txt}
+            if c.resourceId:
+                elem["resourceId"] = c.resourceId
+            compact_clickables.append(elem)
+        if len(compact_clickables) >= 12:
+            break
+
+    compact_editables = []
+    for e in snapshot.editableFields:
+        hint = (e.hint or "").strip()[:40]
+        val = (e.value or "").strip()[:40] if e.value else None
+        item = {"hint": hint}
+        if val:
+            item["value"] = val
+        compact_editables.append(item)
+        if len(compact_editables) >= 5:
+            break
+
+    return json.dumps({
+        "screenTexts": compact_texts,
+        "clickableElements": compact_clickables,
+        "editableFields": compact_editables
+    }, separators=(',', ':'))
 
 async def get_next_action(request: NextActionRequest, step_number: int) -> NextActionResponse:
-    # Format the snapshot for the LLM
-    snapshot_data = {
-        "screenTexts": request.snapshot.screenTexts,
-        "clickableElements": [{"text": e.text, "resourceId": e.resourceId} for e in request.snapshot.clickableElements],
-        "editableFields": [{"hint": f.hint, "value": f.value} for f in request.snapshot.editableFields]
-    }
+    snapshot_json = _format_snapshot(request.snapshot)
     
-    prompt = f"""
-GOAL: {request.goal}
-PREVIOUS ACTION: {request.previousAction or 'None (App just opened)'}
-
-CURRENT SCREEN SNAPSHOT:
-{json.dumps(snapshot_data, indent=2)}
-
-What is the single best next action to take to progress towards the goal?
-"""
+    prompt = f"GOAL: {request.goal}\nPREVIOUS: {request.previousAction or 'None'}\nSNAPSHOT: {snapshot_json}\nWhat is the next action?"
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -65,7 +90,7 @@ What is the single best next action to take to progress towards the goal?
     ]
 
     try:
-        raw = await llm_service.chat(messages, json_mode=True, agent_name="interactive")
+        raw = await llm_service.chat(messages, max_tokens=512, json_mode=True, agent_name="interactive")
         data = json.loads(raw)
         
         is_done = data.get("isDone", False)
@@ -94,3 +119,4 @@ What is the single best next action to take to progress towards the goal?
             error=f"Failed to determine next action: {str(e)}",
             isDone=True
         )
+

@@ -41,35 +41,43 @@ async def chat(
 
     start_time = time.time()
 
-    try:
-        response = await client.chat.completions.create(**kwargs)
-        latency_ms = (time.time() - start_time) * 1000
+    for attempt in range(1, 4):
+        try:
+            response = await client.chat.completions.create(**kwargs)
+            latency_ms = (time.time() - start_time) * 1000
 
-        # Extract token usage for tracing
-        usage = tracing_service.extract_token_usage(response)
-        content = response.choices[0].message.content
+            # Extract token usage for tracing
+            usage = tracing_service.extract_token_usage(response)
+            content = response.choices[0].message.content
 
-        # Log trace to LangSmith
-        _log_to_langsmith(
-            agent_name=agent_name,
-            messages=messages,
-            response_text=content,
-            usage=usage,
-            latency_ms=latency_ms,
-            model=settings.llm_model,
-            json_mode=json_mode,
-        )
+            # Log trace to LangSmith
+            _log_to_langsmith(
+                agent_name=agent_name,
+                messages=messages,
+                response_text=content,
+                usage=usage,
+                latency_ms=latency_ms,
+                model=settings.llm_model,
+                json_mode=json_mode,
+            )
 
-        logger.info(
-            f"LLM [{agent_name}]: {usage.get('total_tokens', '?')} tokens, "
-            f"{latency_ms:.0f}ms"
-        )
+            logger.info(
+                f"LLM [{agent_name}]: {usage.get('total_tokens', '?')} tokens, "
+                f"{latency_ms:.0f}ms"
+            )
 
-        return content
+            return content
 
-    except Exception as e:
-        logger.error(f"LLM call failed: {e}")
-        raise
+        except Exception as e:
+            err_str = str(e).lower()
+            if ("429" in err_str or "rate limit" in err_str) and attempt < 3:
+                wait_sec = 2.5 * attempt
+                logger.warning(f"LLM Rate limited (429), retrying in {wait_sec}s (attempt {attempt}/3)...")
+                import asyncio
+                await asyncio.sleep(wait_sec)
+            else:
+                logger.error(f"LLM call failed: {e}")
+                raise
 
 
 def _log_to_langsmith(

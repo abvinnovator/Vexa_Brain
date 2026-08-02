@@ -5,52 +5,76 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are the Vexa Recovery Agent.
-The local deterministic executor was trying to execute a plan but got stuck.
-Your job is to analyze the situation and suggest EXACTLY ONE recovery action to help it get unstuck, OR abort if it's completely unrecoverable.
+SYSTEM_PROMPT = """You are Vexa Recovery Agent.
+An action step failed. Suggest ONE recovery action as JSON or abort:
 
-RESPOND ONLY WITH VALID JSON in this format:
 {
   "abort": false,
   "action": {
-    "type": "TAP_ELEMENT | TYPE_TEXT | SCROLL_DOWN | PRESS_BACK | WAIT_FOR_USER | WAIT",
+    "type": "TAP_ELEMENT|TYPE_TEXT|SCROLL_DOWN|PRESS_BACK|WAIT_FOR_USER|WAIT",
     "params": {},
-    "description": "What this recovery step does"
+    "description": "Recovery action description"
   }
 }
 
-ACTION TYPE PARAMS:
-- TAP_ELEMENT: { "text": "Exact text of the button/element to tap" }
-- TYPE_TEXT: { "text": "Text to type into the currently focused field" }
-- SCROLL_DOWN: { "times": 1 }
+PARAMS:
+- TAP_ELEMENT: {"text": "Exact text"}
+- TYPE_TEXT: {"text": "Text"}
+- SCROLL_DOWN: {"times": 1}
 - PRESS_BACK: {}
-- WAIT_FOR_USER: { "message": "Please confirm payment or details manually" }
-- WAIT: { "durationMs": 3000 }
+- WAIT_FOR_USER: {"message": "Reason"}
+- WAIT: {"durationMs": 3000}
 
 RULES:
-1. NEVER HALLUCINATE: Only pick elements (buttons, fields, texts) that EXACTLY match what is provided in the CURRENT SCREEN SNAPSHOT.
-2. If the screen is still a loading screen or completely empty, output a WAIT action.
-3. If the user goal is already achieved, or it's completely unrecoverable (e.g. app crashed or requires manual login), set "abort": true.
-"""
+1. ONLY tap elements present in SCREEN SNAPSHOT.
+2. If empty screen, output WAIT.
+3. If unrecoverable, set "abort": true."""
+
+def _format_snapshot(snapshot) -> str:
+    seen_texts = set()
+    compact_texts = []
+    for t in snapshot.screenTexts:
+        clean = (t or "").strip()[:50]
+        if clean and clean not in seen_texts:
+            seen_texts.add(clean)
+            compact_texts.append(clean)
+        if len(compact_texts) >= 12:
+            break
+
+    seen_clickables = set()
+    compact_clickables = []
+    for c in snapshot.clickableElements:
+        txt = (c.text or "").strip()[:50]
+        if txt and txt not in seen_clickables:
+            seen_clickables.add(txt)
+            elem = {"text": txt}
+            if c.resourceId:
+                elem["resourceId"] = c.resourceId
+            compact_clickables.append(elem)
+        if len(compact_clickables) >= 12:
+            break
+
+    compact_editables = []
+    for e in snapshot.editableFields:
+        hint = (e.hint or "").strip()[:40]
+        val = (e.value or "").strip()[:40] if e.value else None
+        item = {"hint": hint}
+        if val:
+            item["value"] = val
+        compact_editables.append(item)
+        if len(compact_editables) >= 5:
+            break
+
+    return json.dumps({
+        "screenTexts": compact_texts,
+        "clickableElements": compact_clickables,
+        "editableFields": compact_editables
+    }, separators=(',', ':'))
 
 async def recover(request: RecoveryRequest) -> RecoveryResponse:
-    snapshot_data = {
-        "screenTexts": request.snapshot.screenTexts,
-        "clickableElements": [{"text": e.text, "resourceId": e.resourceId} for e in request.snapshot.clickableElements],
-        "editableFields": [{"hint": f.hint, "value": f.value} for f in request.snapshot.editableFields]
-    }
+    snapshot_json = _format_snapshot(request.snapshot)
     
-    prompt = f"""
-GOAL: {request.goal}
-FAILED STEP: {request.failedStep.type} - {request.failedStep.description}
-ERROR: {request.error}
-RETRY COUNT: {request.retryCount}
-
-CURRENT SCREEN SNAPSHOT:
-{json.dumps(snapshot_data, indent=2)}
-
-What is the single best recovery action to take?
-"""
+    prompt = f"GOAL: {request.goal}\nFAILED STEP: {request.failedStep.type} - {request.failedStep.description}\nERROR: {request.error}\nRETRY: {request.retryCount}\nSNAPSHOT: {snapshot_json}\nWhat is the recovery action?"
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -58,7 +82,7 @@ What is the single best recovery action to take?
     ]
 
     try:
-        raw = await llm_service.chat(messages, json_mode=True, agent_name="recovery")
+        raw = await llm_service.chat(messages, max_tokens=512, json_mode=True, agent_name="recovery")
         data = json.loads(raw)
         
         is_abort = data.get("abort", False)
@@ -85,3 +109,4 @@ What is the single best recovery action to take?
             error=f"Failed to determine recovery action: {str(e)}",
             abort=True
         )
+

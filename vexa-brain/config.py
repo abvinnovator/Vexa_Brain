@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     mongodb_db_name: str = "vexa"
     llm_model: str = "groq/compound-mini"
     llm_temperature: float = 0.3
-    llm_max_tokens: int = 2048
+    llm_max_tokens: int = 1024
     host: str = "0.0.0.0"
     port: int = 8000
     debug: bool = True

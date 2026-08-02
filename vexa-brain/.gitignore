@@ -8,7 +8,8 @@ __pycache__/
 dist/
 build/
 *.egg
-
+traces/
+logs.txt
 # Environment
 .env
 venv/
