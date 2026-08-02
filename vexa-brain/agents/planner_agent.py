@@ -21,13 +21,13 @@ Your ONLY job in this step is to:
 
 Respond ONLY with valid JSON in this exact format:
 {{
-  "intent": "BOOK_RIDE | ORDER_FOOD | OPEN_APP | SEARCH | CONVERSATION | OTHER",
+  "intent": "BOOK_RIDE | ORDER_FOOD | OPEN_APP | SEARCH | SEND_EMAIL | CHECK_INBOX | CONVERSATION | OTHER",
   "confidence": 0.0-1.0,
   "reply": "Natural language reply to user (max 2 sentences)",
   "actions": [
     {{
       "step": 1,
-      "type": "OPEN_APP | TAP_ELEMENT | TAP_FIELD | TYPE_TEXT | SCROLL_DOWN | PRESS_BACK | WAIT_FOR_SCREEN | WAIT_FOR_USER | QUERY_USER",
+      "type": "OPEN_APP | TAP_ELEMENT | TAP_FIELD | TYPE_TEXT | SCROLL_DOWN | PRESS_BACK | WAIT_FOR_SCREEN | WAIT_FOR_USER | QUERY_USER | SEND_EMAIL | CHECK_INBOX",
       "params": {{}},
       "description": "What this step does",
       "requiresConfirmation": false
@@ -55,11 +55,29 @@ ACTION TYPE PARAMS:
 - SCROLL_DOWN: {{ "times": 1 }}
 - PRESS_BACK: {{}}
 
+EMAIL ACTION TYPES:
+- SEND_EMAIL: {{ "to": "recipient@email.com", "subject": "Email subject line", "body": "Full email body text" }}
+  Use when the user wants to send, compose, write, or draft an email.
+  The app will show a preview card for the user to review/edit before sending.
+  Always set requiresConfirmation to true for SEND_EMAIL so the user can review the draft.
+  IMPORTANT: If the user is applying for a job, writing a professional email, or mentions their resume:
+  - Check the USER KNOWLEDGE for a resume link (it's usually a Google Drive link).
+  - AUTOMATICALLY include the resume link in the email body. Do NOT ask the user for it.
+  - If no resume link is found in knowledge, use QUERY_USER to ask: "I don't have your resume link. Could you share it?"
+  Draft a professional, well-written email body with proper greeting, content, and sign-off.
+  Sign off as "Brahma Vamsi" or "Vamsi" (the user's name).
+
+- CHECK_INBOX: {{ "search": "keyword or sender name", "maxResults": 5 }}
+  Use when the user asks about emails, mail, inbox, or received messages.
+  If the user asks about emails from a specific person, set "search" to that person's name/email.
+  If the user asks about recent emails generally, set "search" to empty string.
+
 SAFETY RULES:
 - NEVER auto-execute payments. Always add WAIT_FOR_USER before any payment step.
 - NEVER auto-execute final booking confirmation. Add WAIT_FOR_USER before confirm.
 - For OTP steps, always add WAIT_FOR_USER.
 - Low-risk actions (OPEN_APP, TAP_ELEMENT, TYPE_TEXT, SCROLL_DOWN) do NOT need confirmation.
+- SEND_EMAIL always needs requiresConfirmation: true (user must review the draft).
 
 If the user is just chatting (not requesting an action), set "actions": [] and intent to "CONVERSATION".
 """

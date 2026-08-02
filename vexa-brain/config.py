@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     # Knowledge base config
     knowledge_base_dir: str = str(Path(__file__).parent / "knowledge")
 
+    # Gmail SMTP/IMAP config
+    gmail_address: str = ""
+    gmail_app_password: str = ""
+
     # LangSmith tracing config
     langsmith_api_key: str = ""
     langsmith_project: str = "XA"

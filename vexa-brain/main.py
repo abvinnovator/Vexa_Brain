@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from config import settings
 from services import mongodb_service, knowledge_service, tracing_service
-from routers import chat, action, knowledge, agent
+from routers import chat, action, knowledge, agent, email
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -52,6 +52,7 @@ app.include_router(chat.router, prefix="/api")
 app.include_router(action.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api")
 app.include_router(agent.router, prefix="/api")
+app.include_router(email.router, prefix="/api")
 
 
 @app.get("/")
@@ -66,7 +67,9 @@ async def root():
             "Personalized response matching",
             "Phone automation (action steps)",
             "Saved agents (replay without AI)",
-            "LLM observability (LangSmith)"
+            "LLM observability (LangSmith)",
+            "Email send (Gmail SMTP)",
+            "Email inbox (Gmail IMAP)"
         ]
     }
 
