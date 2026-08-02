@@ -70,7 +70,7 @@ def _smtp_send(to: str, subject: str, body: str) -> tuple:
         msg["From"] = settings.gmail_address
         msg["To"] = to
         msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
+        msg.attach(MIMEText(body, "plain", "utf-8"))
 
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(settings.gmail_address, settings.gmail_app_password)
