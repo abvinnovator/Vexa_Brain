@@ -6,22 +6,25 @@ import httpx
 import logging
 import time
 import asyncio
+import json
+import re
 
 logger = logging.getLogger(__name__)
 
 _groq_client: Optional[AsyncGroq] = None
 
-# Free models from OpenRouter to fall back on if Groq tokens/rate-limits exhaust
+# Free models from OpenRouter to fall back on if Groq tokens/rate-limits exhaust.
+# Ordered with strict instruction-tuned & JSON-capable models first!
 OPENROUTER_FREE_MODELS = [
-    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "mistralai/mistral-small-24b-instruct-2501:free",
+    "google/gemma-2-9b-it:free",
+    "qwen/qwen-2.5-72b-instruct:free",
     "google/gemma-4-31b-it:free",
-    "nvidia/nemotron-3-super-120b-a12b:free",
     "google/gemma-4-26b-a4b-it:free",
     "openai/gpt-oss-20b:free",
-    "nvidia/nemotron-3-nano-30b-a3b:free",
-    "nvidia/nemotron-nano-9b-v2:free",
-    "nvidia/nemotron-nano-12b-v2-vl:free",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free"
 ]
 
 
@@ -30,6 +33,15 @@ def get_groq_client() -> AsyncGroq:
     if _groq_client is None:
         _groq_client = AsyncGroq(api_key=settings.groq_api_key)
     return _groq_client
+
+
+def _validate_json_mode(content: str) -> bool:
+    """Ensure response contains a valid JSON object block."""
+    if not content or not content.strip():
+        return False
+    start = content.find("{")
+    end = content.rfind("}")
+    return start != -1 and end != -1 and end > start
 
 
 async def chat(
@@ -67,9 +79,12 @@ async def chat(
 
                 usage = tracing_service.extract_token_usage(response)
                 content = response.choices[0].message.content
-                
+
                 if not content or not content.strip():
                     raise ValueError("Groq returned empty content.")
+
+                if json_mode and not _validate_json_mode(content):
+                    raise ValueError("Groq failed to output valid JSON object structure.")
 
                 _log_to_langsmith(
                     agent_name=agent_name,
@@ -131,6 +146,9 @@ async def chat(
                     
                     if not content or not content.strip():
                         raise ValueError(f"OpenRouter model {model_name} returned empty content.")
+
+                    if json_mode and not _validate_json_mode(content):
+                        raise ValueError(f"OpenRouter model {model_name} returned plain text instead of JSON.")
                         
                     latency_ms = (time.time() - start_time) * 1000
                     usage = data.get("usage", {})
@@ -150,10 +168,10 @@ async def chat(
                 else:
                     logger.warning(f"OpenRouter model {model_name} returned HTTP {resp.status_code}: {resp.text[:150]}")
             except Exception as or_err:
-                logger.warning(f"OpenRouter model {model_name} error: {or_err}")
+                logger.warning(f"OpenRouter model {model_name} validation error: {or_err}")
                 continue
 
-    raise Exception("All LLM providers (Groq primary and OpenRouter fallback chain) failed.")
+    raise Exception("All LLM providers (Groq primary and OpenRouter fallback chain) failed to return valid JSON.")
 
 
 def _log_to_langsmith(
