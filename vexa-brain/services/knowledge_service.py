@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 KNOWLEDGE_BASE_DIR = Path(__file__).parent.parent / "knowledge"
 
 # Maximum tokens worth of knowledge to inject per request
-# Roughly 1 token ≈ 4 chars, so 400 tokens ≈ 1600 chars
-MAX_CONTEXT_CHARS = 1600
+# Roughly 1 token ≈ 4 chars, so 800 tokens ≈ 3500 chars
+MAX_CONTEXT_CHARS = 3500
 
 # Tag-to-file mapping — built on startup from frontmatter
 _tag_index: Dict[str, List[str]] = {}
@@ -202,8 +202,8 @@ async def query_relevant(user_prompt: str, user_id: str = "") -> str:
         node = _node_cache[node_path]
         content = node["content"]
 
-        if len(content) > 600:
-            content = content[:600] + "..."
+        if len(content) > 2500:
+            content = content[:2500] + "..."
 
         if total_chars + len(content) > MAX_CONTEXT_CHARS:
             break

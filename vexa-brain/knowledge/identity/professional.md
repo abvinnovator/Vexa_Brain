@@ -2,7 +2,7 @@
 type: knowledge
 title: "Vamsi's Professional Profile"
 description: "Skills, work history, current role, projects, Resume link"
-tags: [career, skills, cognizant, projects, cmdos, work]
+tags: [career, skills, cognizant, projects, cmdos, work, github, linkedin, resume, reddit, links, profile, portfolio]
 last_updated: "2026-07-02"
 confidence: 0.95
 source: seed_data
@@ -51,12 +51,10 @@ source: seed_data
 - **Chrome Extension Platform**
 - **Student Networking Platform**
 
-## Resume , Github , Linkedin , Reddit , Instagram
+## Social & Profile Links
 
-Visit [Resume](https://drive.google.com/file/d/18GAs_oVnNJH8fXZBEVu6m-FL5bMkI1NL/view?usp=sharing) for checking resume.
+- **GitHub Profile**: https://github.com/abvinnovator (Username: abvinnovator)
+- **LinkedIn Profile**: https://www.linkedin.com/in/brahmavamsi-aratipamula-42251626b/
+- **Resume**: https://drive.google.com/file/d/18GAs_oVnNJH8fXZBEVu6m-FL5bMkI1NL/view?usp=sharing
+- **Reddit**: https://www.reddit.com/user/abv_codes/
 
-Visit [Github](https://github.com/abvinnovator) for checking projects , github.
-
-Visit [linkedin](https://www.linkedin.com/in/brahmavamsi-aratipamula-42251626b/) for checking linkedin profile.
-
-Visit [Reddit](https://www.reddit.com/user/abv_codes/) for checking reddit profile.

@@ -8,6 +8,10 @@ tags:
 - identity
 - education
 - location
+- portfolio
+- website
+- links
+- profile
 title: Vamsi's Personal Profile
 type: knowledge
 ---

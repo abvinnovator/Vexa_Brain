@@ -23,7 +23,7 @@ Respond ONLY with valid JSON in this exact format:
 {{
   "intent": "BOOK_RIDE | ORDER_FOOD | OPEN_APP | SEARCH | SEND_EMAIL | CHECK_INBOX | CONVERSATION | OTHER",
   "confidence": 0.0-1.0,
-  "reply": "Natural language reply to user (max 2 sentences)",
+  "reply": "Natural language reply containing all requested information, links, or answers clearly and completely",
   "actions": [
     {{
       "step": 1,
@@ -44,7 +44,7 @@ Respond ONLY with valid JSON in this exact format:
 ACTION TYPE PARAMS:
 - OPEN_APP: {{ "packageName": "com.ubercab" }} 
   (CRITICAL: You MUST use the exact, correct Android package name for the app. Do not hallucinate or guess. 
-   Examples: Zomato is "com.zomato.android", Blinkit is "com.grofers.customerapp", Swiggy is "in.swiggy.android", Uber is "com.ubercab".
+   Examples: WhatsApp is "com.whatsapp", Zomato is "com.zomato.android", Blinkit is "com.grofers.customerapp", Swiggy is "in.swiggy.android", Uber is "com.ubercab".
    If you output a fake/incorrect package name like "com.application.zomato", the agent will fail and crash!)
 - TAP_ELEMENT: {{ "text": "Book Now" }}
 - TAP_FIELD: {{ "fieldHint": "Where to?", "resourceId": "optional" }}
@@ -72,14 +72,16 @@ EMAIL ACTION TYPES:
   If the user asks about emails from a specific person, set "search" to that person's name/email.
   If the user asks about recent emails generally, set "search" to empty string.
 
-SAFETY RULES:
+SAFETY & INTENT CLASSIFICATION RULES:
+- If the user is asking for information about themselves (e.g. profile links, GitHub, LinkedIn, Portfolio, Resume, shift timings, role, personal info), set "intent": "CONVERSATION", "actions": [] and provide the exact requested info/links in "reply"!
+- DO NOT generate phone automation steps (like SEARCH, TYPE_TEXT, QUERY_USER) for simple info or memory queries!
 - NEVER auto-execute payments. Always add WAIT_FOR_USER before any payment step.
 - NEVER auto-execute final booking confirmation. Add WAIT_FOR_USER before confirm.
 - For OTP steps, always add WAIT_FOR_USER.
 - Low-risk actions (OPEN_APP, TAP_ELEMENT, TYPE_TEXT, SCROLL_DOWN) do NOT need confirmation.
 - SEND_EMAIL always needs requiresConfirmation: true (user must review the draft).
 
-If the user is just chatting (not requesting an action), set "actions": [] and intent to "CONVERSATION".
+If the user is just chatting or asking a question (not requesting a phone automation action), set "actions": [] and intent to "CONVERSATION".
 """
 
 
