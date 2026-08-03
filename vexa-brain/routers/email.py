@@ -15,6 +15,7 @@ from services import email_service
 import logging
 import json
 import re
+import gzip
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -41,6 +42,14 @@ async def send_email(request: Request):
     body_bytes = b""
     try:
         body_bytes = await request.body()
+        
+        # Check if the request body is GZIP compressed (magic bytes: \x1f\x8b)
+        if body_bytes.startswith(b"\x1f\x8b"):
+            try:
+                body_bytes = gzip.decompress(body_bytes)
+            except Exception as e:
+                logger.error(f"GZIP decompression failed: {e}")
+        
         body_str = body_bytes.decode("utf-8", errors="replace")
         
         try:
@@ -51,7 +60,7 @@ async def send_email(request: Request):
                 content={
                     "success": False,
                     "error": f"JSON Decode Error: {str(e)}",
-                    "raw_body_received": body_str,
+                    "raw_body_received": body_str[:200], # just a snippet
                     "body_length": len(body_bytes)
                 }
             )
@@ -89,6 +98,13 @@ async def check_inbox(request: Request):
     body_bytes = b""
     try:
         body_bytes = await request.body()
+        
+        if body_bytes.startswith(b"\x1f\x8b"):
+            try:
+                body_bytes = gzip.decompress(body_bytes)
+            except Exception:
+                pass
+                
         data = robust_parse_json(body_bytes.decode("utf-8", errors="replace"))
         payload = InboxRequest(**data)
     except Exception as e:
