@@ -15,16 +15,26 @@ _groq_client: Optional[AsyncGroq] = None
 
 # Free models from OpenRouter to fall back on if Groq tokens/rate-limits exhaust.
 # Ordered with strict instruction-tuned & JSON-capable models first!
+# Active free models from OpenRouter (verified non-404 endpoints)
 OPENROUTER_FREE_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "mistralai/mistral-small-24b-instruct-2501:free",
-    "google/gemma-2-9b-it:free",
-    "qwen/qwen-2.5-72b-instruct:free",
+    "inclusionai/ling-3.0-flash:free",
+    "poolside/laguna-s-2.1:free",
     "google/gemma-4-31b-it:free",
     "google/gemma-4-26b-a4b-it:free",
-    "openai/gpt-oss-20b:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
-    "nvidia/nemotron-3-ultra-550b-a55b:free"
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-nano-9b-v2:free",
+    "openai/gpt-oss-20b:free",
+    "cohere/north-mini-code:free",
+    "poolside/laguna-xs-2.1:free",
+    "openrouter/free"
+]
+
+# Secondary Groq models to try if primary Groq model rate-limits
+GROQ_FALLBACK_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "gemma2-9b-it"
 ]
 
 
@@ -35,13 +45,33 @@ def get_groq_client() -> AsyncGroq:
     return _groq_client
 
 
+def _clean_json_content(content: str) -> str:
+    """Extract clean JSON string from content, stripping markdown code fences if present."""
+    if not content:
+        return ""
+    text = content.strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = text[start:end+1].strip()
+        try:
+            json.loads(candidate)
+            return candidate
+        except Exception:
+            pass
+    return text
+
+
 def _validate_json_mode(content: str) -> bool:
-    """Ensure response contains a valid JSON object block."""
-    if not content or not content.strip():
+    """Ensure response contains a valid parseable JSON object."""
+    cleaned = _clean_json_content(content)
+    if not cleaned:
         return False
-    start = content.find("{")
-    end = content.rfind("}")
-    return start != -1 and end != -1 and end > start
+    try:
+        json.loads(cleaned)
+        return True
+    except Exception:
+        return False
 
 
 async def chat(
@@ -53,27 +83,33 @@ async def chat(
 ) -> str:
     """Send messages to LLM and return response text.
 
-    Tries Groq LLM primary service first. If Groq rate-limits or exhausts tokens (429/errors),
-    automatically falls back to OpenRouter free models in sequence so automation is never interrupted.
+    Tries Groq primary model first, then secondary Groq models. If all Groq options fail or rate-limit,
+    instantly iterates through OpenRouter active free models in sequence.
     """
     temp = temperature or settings.llm_temperature
     max_t = max_tokens or settings.llm_max_tokens
 
-    # --- 1. Try Groq Primary ---
+    # --- 1. Try Groq Primary + Fallbacks ---
+    groq_models_to_try = [settings.llm_model]
+    for gm in GROQ_FALLBACK_MODELS:
+        if gm not in groq_models_to_try:
+            groq_models_to_try.append(gm)
+
     try:
         groq_client = get_groq_client()
-        kwargs = {
-            "model": settings.llm_model,
-            "messages": messages,
-            "temperature": temp,
-            "max_tokens": max_t,
-        }
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
+        for g_model in groq_models_to_try:
+            kwargs = {
+                "model": g_model,
+                "messages": messages,
+                "temperature": temp,
+                "max_tokens": max_t,
+            }
+            if json_mode:
+                kwargs["response_format"] = {"type": "json_object"}
 
-        start_time = time.time()
-        for attempt in range(1, 3):
+            start_time = time.time()
             try:
+                logger.info(f"Trying Groq model: {g_model}...")
                 response = await groq_client.chat.completions.create(**kwargs)
                 latency_ms = (time.time() - start_time) * 1000
 
@@ -81,10 +117,12 @@ async def chat(
                 content = response.choices[0].message.content
 
                 if not content or not content.strip():
-                    raise ValueError("Groq returned empty content.")
+                    raise ValueError(f"Groq model {g_model} returned empty content.")
 
-                if json_mode and not _validate_json_mode(content):
-                    raise ValueError("Groq failed to output valid JSON object structure.")
+                if json_mode:
+                    if not _validate_json_mode(content):
+                        raise ValueError(f"Groq model {g_model} failed to output valid JSON object.")
+                    content = _clean_json_content(content)
 
                 _log_to_langsmith(
                     agent_name=agent_name,
@@ -92,26 +130,23 @@ async def chat(
                     response_text=content,
                     usage=usage,
                     latency_ms=latency_ms,
-                    model=settings.llm_model,
+                    model=g_model,
                     provider="groq"
                 )
 
-                logger.info(f"LLM [Groq/{agent_name}]: {usage.get('total_tokens', '?')} tokens, {latency_ms:.0f}ms")
+                logger.info(f"LLM [Groq/{g_model}/{agent_name}]: Success! {usage.get('total_tokens', '?')} tokens, {latency_ms:.0f}ms")
                 return content
             except Exception as e:
-                err_str = str(e).lower()
-                if ("429" in err_str or "rate limit" in err_str or "quota" in err_str) and attempt < 2:
-                    await asyncio.sleep(1.5)
-                else:
-                    raise e
+                logger.warning(f"Groq model {g_model} failed ({e}). Trying next model...")
+                continue
     except Exception as groq_err:
-        logger.warning(f"Groq LLM failed/exhausted ({groq_err}). Switching to OpenRouter fallback models...")
+        logger.warning(f"Groq LLM service failed ({groq_err}). Switching to OpenRouter fallback models...")
 
     # --- 2. OpenRouter Fallback Chain ---
     api_key = settings.open_router_api_key
     if not api_key:
         logger.error("No OpenRouter API key configured in settings!")
-        raise Exception("LLM primary (Groq) failed and no OpenRouter API key available.")
+        raise Exception("LLM primary & fallbacks (Groq) failed and no OpenRouter API key available.")
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -140,15 +175,20 @@ async def chat(
                     data = resp.json()
                     
                     if "choices" not in data or not data["choices"]:
-                        raise ValueError(f"OpenRouter model {model_name} returned no choices: {data}")
+                        logger.warning(f"OpenRouter model {model_name} returned no choices: {data}")
+                        continue
                         
                     content = data["choices"][0]["message"].get("content")
                     
                     if not content or not content.strip():
-                        raise ValueError(f"OpenRouter model {model_name} returned empty content.")
+                        logger.warning(f"OpenRouter model {model_name} returned empty content.")
+                        continue
 
-                    if json_mode and not _validate_json_mode(content):
-                        raise ValueError(f"OpenRouter model {model_name} returned plain text instead of JSON.")
+                    if json_mode:
+                        if not _validate_json_mode(content):
+                            logger.warning(f"OpenRouter model {model_name} returned invalid JSON structure.")
+                            continue
+                        content = _clean_json_content(content)
                         
                     latency_ms = (time.time() - start_time) * 1000
                     usage = data.get("usage", {})
@@ -167,11 +207,12 @@ async def chat(
                     return content
                 else:
                     logger.warning(f"OpenRouter model {model_name} returned HTTP {resp.status_code}: {resp.text[:150]}")
+                    continue
             except Exception as or_err:
-                logger.warning(f"OpenRouter model {model_name} validation error: {or_err}")
+                logger.warning(f"OpenRouter model {model_name} error: {or_err}")
                 continue
 
-    raise Exception("All LLM providers (Groq primary and OpenRouter fallback chain) failed to return valid JSON.")
+    raise Exception("All LLM providers (Groq primary/fallbacks and OpenRouter fallback chain) failed to return valid response.")
 
 
 def _log_to_langsmith(
