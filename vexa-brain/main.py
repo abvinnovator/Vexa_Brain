@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from config import settings
-from services import mongodb_service, knowledge_service, tracing_service
+from services import mongodb_service, knowledge_service, tracing_service, neo4j_service
 from routers import chat, action, knowledge, agent, email
 import logging
 
@@ -17,10 +17,10 @@ async def lifespan(app: FastAPI):
     # Startup
     await mongodb_service.connect(settings.mongodb_uri, settings.mongodb_db_name)
 
-    # Initialize OKF knowledge service
-    knowledge_service.init()
+    # Initialize OKF knowledge service with Neo4j Graph DB
+    await knowledge_service.init_async()
     stats = knowledge_service.get_stats()
-    logger.info(f"OKF Knowledge Base: {stats['total_nodes']} nodes, {stats['total_tags']} tags, domains={stats['domains']}")
+    logger.info(f"OKF Knowledge Base: {stats['total_nodes']} nodes, {stats['total_tags']} tags, domains={stats['domains']}, neo4j={stats['neo4j_connected']}")
 
     # Initialize LangSmith tracing
     tracing_service.init()
@@ -29,6 +29,7 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown
     await mongodb_service.disconnect()
+    await neo4j_service.disconnect()
     logger.info("Vexa Brain stopped")
 
 

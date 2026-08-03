@@ -2,19 +2,34 @@ from groq import AsyncGroq
 from config import settings
 from typing import List, Dict, Optional
 from services import tracing_service
+import httpx
 import logging
 import time
+import asyncio
 
 logger = logging.getLogger(__name__)
 
-_client: AsyncGroq = None
+_groq_client: Optional[AsyncGroq] = None
+
+# Free models from OpenRouter to fall back on if Groq tokens/rate-limits exhaust
+OPENROUTER_FREE_MODELS = [
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "google/gemma-4-31b-it:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "openai/gpt-oss-20b:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free",
+    "nvidia/nemotron-nano-9b-v2:free",
+    "nvidia/nemotron-nano-12b-v2-vl:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+]
 
 
-def get_client() -> AsyncGroq:
-    global _client
-    if _client is None:
-        _client = AsyncGroq(api_key=settings.groq_api_key)
-    return _client
+def get_groq_client() -> AsyncGroq:
+    global _groq_client
+    if _groq_client is None:
+        _groq_client = AsyncGroq(api_key=settings.groq_api_key)
+    return _groq_client
 
 
 async def chat(
@@ -24,60 +39,110 @@ async def chat(
     json_mode: bool = False,
     agent_name: str = "unknown"
 ) -> str:
-    """Send messages to Groq LLM and return response text.
+    """Send messages to LLM and return response text.
 
-    Now includes LangSmith tracing for token/latency observability.
-    The `agent_name` parameter tags the trace (planner, interactive, recovery, learning).
+    Tries Groq LLM primary service first. If Groq rate-limits or exhausts tokens (429/errors),
+    automatically falls back to OpenRouter free models in sequence so automation is never interrupted.
     """
-    client = get_client()
-    kwargs = {
-        "model": settings.llm_model,
-        "messages": messages,
-        "temperature": temperature or settings.llm_temperature,
-        "max_tokens": max_tokens or settings.llm_max_tokens,
+    temp = temperature or settings.llm_temperature
+    max_t = max_tokens or settings.llm_max_tokens
+
+    # --- 1. Try Groq Primary ---
+    try:
+        groq_client = get_groq_client()
+        kwargs = {
+            "model": settings.llm_model,
+            "messages": messages,
+            "temperature": temp,
+            "max_tokens": max_t,
+        }
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        start_time = time.time()
+        for attempt in range(1, 3):
+            try:
+                response = await groq_client.chat.completions.create(**kwargs)
+                latency_ms = (time.time() - start_time) * 1000
+
+                usage = tracing_service.extract_token_usage(response)
+                content = response.choices[0].message.content
+
+                _log_to_langsmith(
+                    agent_name=agent_name,
+                    messages=messages,
+                    response_text=content,
+                    usage=usage,
+                    latency_ms=latency_ms,
+                    model=settings.llm_model,
+                    provider="groq"
+                )
+
+                logger.info(f"LLM [Groq/{agent_name}]: {usage.get('total_tokens', '?')} tokens, {latency_ms:.0f}ms")
+                return content
+            except Exception as e:
+                err_str = str(e).lower()
+                if ("429" in err_str or "rate limit" in err_str or "quota" in err_str) and attempt < 2:
+                    await asyncio.sleep(1.5)
+                else:
+                    raise e
+    except Exception as groq_err:
+        logger.warning(f"Groq LLM failed/exhausted ({groq_err}). Switching to OpenRouter fallback models...")
+
+    # --- 2. OpenRouter Fallback Chain ---
+    api_key = settings.open_router_api_key
+    if not api_key:
+        logger.error("No OpenRouter API key configured in settings!")
+        raise Exception("LLM primary (Groq) failed and no OpenRouter API key available.")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "HTTP-Referer": "https://vexa.app",
+        "X-Title": "Vexa Brain",
+        "Content-Type": "application/json"
     }
-    if json_mode:
-        kwargs["response_format"] = {"type": "json_object"}
 
-    start_time = time.time()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for model_name in OPENROUTER_FREE_MODELS:
+            start_time = time.time()
+            payload = {
+                "model": model_name,
+                "messages": messages,
+                "temperature": temp,
+                "max_tokens": max_t
+            }
+            if json_mode:
+                payload["response_format"] = {"type": "json_object"}
 
-    for attempt in range(1, 4):
-        try:
-            response = await client.chat.completions.create(**kwargs)
-            latency_ms = (time.time() - start_time) * 1000
+            try:
+                logger.info(f"Trying OpenRouter fallback model: {model_name}...")
+                resp = await client.post("https://openrouter.ai/api/v1/chat/completions", json=payload, headers=headers)
 
-            # Extract token usage for tracing
-            usage = tracing_service.extract_token_usage(response)
-            content = response.choices[0].message.content
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = data["choices"][0]["message"]["content"]
+                    latency_ms = (time.time() - start_time) * 1000
+                    usage = data.get("usage", {})
 
-            # Log trace to LangSmith
-            _log_to_langsmith(
-                agent_name=agent_name,
-                messages=messages,
-                response_text=content,
-                usage=usage,
-                latency_ms=latency_ms,
-                model=settings.llm_model,
-                json_mode=json_mode,
-            )
+                    _log_to_langsmith(
+                        agent_name=agent_name,
+                        messages=messages,
+                        response_text=content,
+                        usage=usage,
+                        latency_ms=latency_ms,
+                        model=model_name,
+                        provider="openrouter"
+                    )
 
-            logger.info(
-                f"LLM [{agent_name}]: {usage.get('total_tokens', '?')} tokens, "
-                f"{latency_ms:.0f}ms"
-            )
+                    logger.info(f"LLM [OpenRouter/{model_name}/{agent_name}]: Success! {latency_ms:.0f}ms")
+                    return content
+                else:
+                    logger.warning(f"OpenRouter model {model_name} returned HTTP {resp.status_code}: {resp.text[:150]}")
+            except Exception as or_err:
+                logger.warning(f"OpenRouter model {model_name} error: {or_err}")
+                continue
 
-            return content
-
-        except Exception as e:
-            err_str = str(e).lower()
-            if ("429" in err_str or "rate limit" in err_str) and attempt < 3:
-                wait_sec = 2.5 * attempt
-                logger.warning(f"LLM Rate limited (429), retrying in {wait_sec}s (attempt {attempt}/3)...")
-                import asyncio
-                await asyncio.sleep(wait_sec)
-            else:
-                logger.error(f"LLM call failed: {e}")
-                raise
+    raise Exception("All LLM providers (Groq primary and OpenRouter fallback chain) failed.")
 
 
 def _log_to_langsmith(
@@ -87,9 +152,8 @@ def _log_to_langsmith(
     usage: Dict,
     latency_ms: float,
     model: str,
-    json_mode: bool,
+    provider: str
 ):
-    """Fire-and-forget trace to LangSmith using RunTree (non-blocking)."""
     if not tracing_service._initialized:
         return
 
@@ -98,12 +162,12 @@ def _log_to_langsmith(
 
         client = Client()
         client.create_run(
-            name=f"llm/{agent_name}",
+            name=f"llm/{provider}/{agent_name}",
             run_type="llm",
             inputs={
                 "messages": messages,
                 "model": model,
-                "json_mode": json_mode,
+                "provider": provider
             },
             outputs={
                 "response": response_text,
@@ -112,15 +176,15 @@ def _log_to_langsmith(
                 "metadata": {
                     "agent": agent_name,
                     "model": model,
+                    "provider": provider,
                     "latency_ms": round(latency_ms, 1),
                     "prompt_tokens": usage.get("prompt_tokens", 0),
                     "completion_tokens": usage.get("completion_tokens", 0),
                     "total_tokens": usage.get("total_tokens", 0),
                 },
-                "runtime": {"type": "groq"},
+                "runtime": {"type": provider},
             },
             project_name=settings.langsmith_project,
         )
     except Exception as e:
-        # Tracing should NEVER crash the main flow
         logger.debug(f"LangSmith trace failed (non-fatal): {e}")

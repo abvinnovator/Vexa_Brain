@@ -1,8 +1,8 @@
 """
-Knowledge Service — OKF-based smart retrieval engine.
+Knowledge Service — OKF-based smart retrieval engine with Neo4j Graph DB backend.
 
-Replaces the old "dump entire memory.txt into prompt" approach.
-Reads structured Markdown files with YAML frontmatter, and returns
+Reads structured Markdown files with YAML frontmatter on initial boot,
+persists all learned knowledge into Neo4j Graph Database, and returns
 ONLY the knowledge nodes relevant to the current user query.
 
 Token budget: ~200-400 tokens per request (vs ~2000+ before).
@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 
+from services import neo4j_service
+
 logger = logging.getLogger(__name__)
 
 # Base path for knowledge files — relative to vexa-brain/
@@ -26,12 +28,77 @@ KNOWLEDGE_BASE_DIR = Path(__file__).parent.parent / "knowledge"
 MAX_CONTEXT_CHARS = 1600
 
 # Tag-to-file mapping — built on startup from frontmatter
-_tag_index: Dict[str, List[Path]] = {}
-_node_cache: Dict[str, dict] = {}  # path -> {frontmatter, content}
+_tag_index: Dict[str, List[str]] = {}
+_node_cache: Dict[str, dict] = {}  # rel_path -> {frontmatter, content, path}
 
 
 def init():
-    """Initialize the knowledge service — build tag index from all OKF nodes."""
+    """Synchronous init fallback for local file loading."""
+    _load_from_files()
+
+
+async def init_async():
+    """Initialize knowledge service with Neo4j Graph Database support."""
+    global _tag_index, _node_cache
+    _tag_index = {}
+    _node_cache = {}
+
+    await neo4j_service.connect()
+
+    if neo4j_service.is_connected():
+        # Seed Neo4j from local files if empty
+        if KNOWLEDGE_BASE_DIR.exists():
+            await neo4j_service.seed_from_markdown_if_empty(KNOWLEDGE_BASE_DIR)
+
+        # Load from Neo4j Graph DB
+        nodes = await neo4j_service.fetch_all_nodes()
+        logger.info(f"Knowledge service: loading {len(nodes)} OKF nodes from Neo4j Graph DB")
+
+        for n in nodes:
+            rel_path = n.get("path") or f"{n.get('domain')}/{n.get('filename')}.md"
+            tags = n.get("tags") or [n.get("domain"), n.get("filename")]
+
+            frontmatter = {
+                "title": n.get("title") or rel_path,
+                "type": n.get("type", "knowledge"),
+                "confidence": n.get("confidence", 0.9),
+                "last_updated": n.get("last_updated", ""),
+                "status": n.get("status", "stable"),
+                "tags": tags
+            }
+
+            _node_cache[rel_path] = {
+                "frontmatter": frontmatter,
+                "content": n.get("content", ""),
+                "path": KNOWLEDGE_BASE_DIR / rel_path
+            }
+
+            # Index tags
+            for tag in tags:
+                if tag:
+                    tag_lower = tag.lower()
+                    if tag_lower not in _tag_index:
+                        _tag_index[tag_lower] = []
+                    if rel_path not in _tag_index[tag_lower]:
+                        _tag_index[tag_lower].append(rel_path)
+
+            # Index title words
+            title = frontmatter.get("title", "")
+            for word in title.lower().split():
+                word = re.sub(r'[^a-z0-9]', '', word)
+                if len(word) > 2:
+                    if word not in _tag_index:
+                        _tag_index[word] = []
+                    if rel_path not in _tag_index[word]:
+                        _tag_index[word].append(rel_path)
+
+        logger.info(f"Knowledge service (Neo4j): indexed {len(_node_cache)} nodes, {len(_tag_index)} tags")
+    else:
+        logger.warning("Neo4j not connected. Falling back to local filesystem OKF files.")
+        _load_from_files()
+
+
+def _load_from_files():
     global _tag_index, _node_cache
     _tag_index = {}
     _node_cache = {}
@@ -41,7 +108,7 @@ def init():
         return
 
     md_files = list(KNOWLEDGE_BASE_DIR.rglob("*.md"))
-    logger.info(f"Knowledge service: indexing {len(md_files)} OKF nodes")
+    logger.info(f"Knowledge service (Filesystem): indexing {len(md_files)} OKF nodes")
 
     for md_file in md_files:
         if md_file.name == "index.md":
@@ -75,14 +142,13 @@ def init():
         except Exception as e:
             logger.warning(f"Failed to parse OKF node {md_file}: {e}")
 
-    logger.info(f"Knowledge service: indexed {len(_node_cache)} nodes, {len(_tag_index)} tags")
+    logger.info(f"Knowledge service (Filesystem): indexed {len(_node_cache)} nodes, {len(_tag_index)} tags")
 
 
 def _parse_okf_file(filepath: Path) -> Tuple[dict, str]:
     """Parse a Markdown file with YAML frontmatter. Returns (frontmatter_dict, body_content)."""
     text = filepath.read_text(encoding="utf-8")
 
-    # Extract YAML frontmatter between --- markers
     if text.startswith("---"):
         parts = text.split("---", 2)
         if len(parts) >= 3:
@@ -90,24 +156,15 @@ def _parse_okf_file(filepath: Path) -> Tuple[dict, str]:
             content = parts[2].strip()
             return frontmatter, content
 
-    # No frontmatter — treat entire file as content
     return {}, text.strip()
 
 
 async def query_relevant(user_prompt: str, user_id: str = "") -> str:
     """
     Given a user message, return ONLY the relevant knowledge context.
-
-    Strategy:
-    1. Tokenize the user prompt into keywords
-    2. Match keywords against the tag index
-    3. Score and rank matching nodes
-    4. Return top nodes within token budget
-
-    Returns a compact string ready to inject into the LLM prompt.
     """
     if not _node_cache:
-        init()
+        await init_async()
 
     if not _node_cache:
         return "No knowledge base available."
@@ -118,18 +175,15 @@ async def query_relevant(user_prompt: str, user_id: str = "") -> str:
     # Score each node by relevance
     scores: Dict[str, float] = {}
     for keyword in keywords:
-        # Exact tag match
         if keyword in _tag_index:
             for node_path in _tag_index[keyword]:
                 scores[node_path] = scores.get(node_path, 0) + 2.0
 
-        # Partial tag match (prefix)
         for tag, paths in _tag_index.items():
             if tag.startswith(keyword) or keyword.startswith(tag):
                 for node_path in paths:
                     scores[node_path] = scores.get(node_path, 0) + 1.0
 
-    # Also check content for keyword matches
     for node_path, node_data in _node_cache.items():
         content_lower = node_data["content"].lower()
         for keyword in keywords:
@@ -137,10 +191,8 @@ async def query_relevant(user_prompt: str, user_id: str = "") -> str:
                 scores[node_path] = scores.get(node_path, 0) + 0.5
 
     if not scores:
-        # No specific match — return identity basics (always useful)
         return _get_identity_summary()
 
-    # Sort by score (descending) and collect within budget
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
     context_parts = []
@@ -150,7 +202,6 @@ async def query_relevant(user_prompt: str, user_id: str = "") -> str:
         node = _node_cache[node_path]
         content = node["content"]
 
-        # Truncate individual node if too long
         if len(content) > 600:
             content = content[:600] + "..."
 
@@ -172,7 +223,6 @@ async def get_communication_profile() -> str:
     speech_path = "speech/profile.md"
     if speech_path in _node_cache:
         content = _node_cache[speech_path]["content"]
-        # Return first 400 chars — compact enough for every request
         if len(content) > 400:
             return content[:400] + "..."
         return content
@@ -191,16 +241,19 @@ def get_node_content(domain: str, filename: str) -> Optional[str]:
 async def update_node(domain: str, filename: str, new_content: str, merge: bool = True):
     """
     Update a knowledge node with new content.
-
-    If merge=True, appends to existing content (deduplicating).
-    If merge=False, replaces entirely.
+    Persists to Neo4j Graph DB and updates local file if possible.
     """
+    rel_path = f"{domain}/{filename}.md"
     filepath = KNOWLEDGE_BASE_DIR / domain / f"{filename}.md"
 
-    if filepath.exists() and merge:
-        frontmatter, existing_content = _parse_okf_file(filepath)
+    frontmatter = {}
+    updated_content = new_content
 
-        # Simple deduplication — don't add lines that already exist
+    if rel_path in _node_cache and merge:
+        existing = _node_cache[rel_path]
+        frontmatter = dict(existing.get("frontmatter", {}))
+        existing_content = existing.get("content", "")
+
         existing_lines = set(existing_content.lower().split("\n"))
         new_lines = []
         for line in new_content.split("\n"):
@@ -210,43 +263,58 @@ async def update_node(domain: str, filename: str, new_content: str, merge: bool 
         if not new_lines:
             return  # Nothing new
 
-        # Update timestamp
-        frontmatter["last_updated"] = datetime.now().strftime("%Y-%m-%d")
-
-        # Write back
         updated_content = existing_content + "\n" + "\n".join(new_lines)
-        _write_okf_file(filepath, frontmatter, updated_content)
     else:
-        # New file or full replace
         frontmatter = {
             "type": "knowledge",
             "title": f"{domain}/{filename}",
             "tags": [domain, filename],
             "last_updated": datetime.now().strftime("%Y-%m-%d"),
-            "confidence": 0.7,
-            "source": "learned"
+            "confidence": 0.9,
+            "status": "stable"
         }
-        filepath.parent.mkdir(parents=True, exist_ok=True)
-        _write_okf_file(filepath, frontmatter, new_content)
 
-    # Refresh cache for this node
-    rel_path = f"{domain}/{filename}.md"
-    fm, content = _parse_okf_file(filepath)
+    frontmatter["last_updated"] = datetime.now().strftime("%Y-%m-%d")
+
+    # 1. Try writing to local file (if disk is writable)
+    try:
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        _write_okf_file(filepath, frontmatter, updated_content)
+    except Exception as e:
+        logger.warning(f"Could not write local OKF file {filepath} (ephemeral storage): {e}")
+
+    # 2. Update memory cache
     _node_cache[rel_path] = {
-        "frontmatter": fm,
-        "content": content,
+        "frontmatter": frontmatter,
+        "content": updated_content,
         "path": filepath
     }
 
     # Re-index tags
-    for tag in fm.get("tags", []):
-        tag_lower = tag.lower()
-        if tag_lower not in _tag_index:
-            _tag_index[tag_lower] = []
-        if rel_path not in _tag_index[tag_lower]:
-            _tag_index[tag_lower].append(rel_path)
+    tags = frontmatter.get("tags", [domain, filename])
+    for tag in tags:
+        if tag:
+            tag_lower = tag.lower()
+            if tag_lower not in _tag_index:
+                _tag_index[tag_lower] = []
+            if rel_path not in _tag_index[tag_lower]:
+                _tag_index[tag_lower].append(rel_path)
 
-    logger.info(f"Knowledge node updated: {rel_path}")
+    # 3. Persist to Neo4j Graph DB
+    if neo4j_service.is_connected():
+        await neo4j_service.upsert_node(
+            domain=domain,
+            filename=filename,
+            title=frontmatter.get("title", f"{domain}/{filename}"),
+            node_type=frontmatter.get("type", "knowledge"),
+            tags=tags,
+            confidence=float(frontmatter.get("confidence", 0.9)),
+            last_updated=frontmatter.get("last_updated", datetime.now().strftime("%Y-%m-%d")),
+            status=frontmatter.get("status", "stable"),
+            content=updated_content
+        )
+
+    logger.info(f"Knowledge node updated and persisted: {rel_path}")
 
 
 def _write_okf_file(filepath: Path, frontmatter: dict, content: str):
@@ -258,7 +326,6 @@ def _write_okf_file(filepath: Path, frontmatter: dict, content: str):
 
 def _extract_keywords(text: str) -> List[str]:
     """Extract meaningful keywords from user text for tag matching."""
-    # Remove common stop words
     stop_words = {
         "i", "me", "my", "we", "you", "your", "the", "a", "an", "is", "are",
         "was", "were", "be", "been", "being", "have", "has", "had", "do", "does",
@@ -276,13 +343,12 @@ def _extract_keywords(text: str) -> List[str]:
     words = re.findall(r'[a-z0-9]+', text.lower())
     keywords = [w for w in words if w not in stop_words and len(w) > 2]
 
-    # Also try bigrams for compound concepts
     for i in range(len(words) - 1):
         bigram = f"{words[i]}_{words[i+1]}"
         if words[i] not in stop_words and words[i+1] not in stop_words:
             keywords.append(bigram)
 
-    return keywords[:15]  # Cap at 15 keywords
+    return keywords[:15]
 
 
 def _get_identity_summary() -> str:
@@ -291,7 +357,6 @@ def _get_identity_summary() -> str:
     for key in ["identity/personal.md", "identity/professional.md"]:
         if key in _node_cache:
             content = _node_cache[key]["content"]
-            # Take first 300 chars of each
             parts.append(content[:300])
 
     if parts:
@@ -301,15 +366,14 @@ def _get_identity_summary() -> str:
 
 
 def get_all_tags() -> List[str]:
-    """Return all known tags — useful for debugging."""
     return sorted(_tag_index.keys())
 
 
 def get_stats() -> dict:
-    """Return knowledge base statistics."""
     return {
         "total_nodes": len(_node_cache),
         "total_tags": len(_tag_index),
         "domains": list(set(p.split("/")[0] for p in _node_cache.keys())),
-        "total_content_chars": sum(len(n["content"]) for n in _node_cache.values())
+        "total_content_chars": sum(len(n["content"]) for n in _node_cache.values()),
+        "neo4j_connected": neo4j_service.is_connected()
     }

@@ -19,6 +19,15 @@ class Settings(BaseSettings):
     gmail_address: str = ""
     gmail_app_password: str = ""
 
+    # OpenRouter API fallback
+    open_router_api_key: str = ""
+
+    # Neo4j Graph DB config for OKF persistence
+    neo4j_uri: str = ""
+    neo4j_username: str = ""
+    neo4j_password: str = ""
+    neo4j_database: str = ""
+
     # LangSmith tracing config
     langsmith_api_key: str = ""
     langsmith_project: str = "XA"
