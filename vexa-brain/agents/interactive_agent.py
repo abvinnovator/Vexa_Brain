@@ -2,6 +2,7 @@ from services import llm_service
 from models.request_models import NextActionRequest, NextActionResponse, ActionStep
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,26 @@ def _format_snapshot(snapshot) -> str:
         "editableFields": compact_editables
     }, separators=(',', ':'))
 
+def _clean_json_response(raw: str) -> str:
+    """Clean markdown code blocks and trailing characters from LLM json response."""
+    raw = raw.strip()
+    if raw.startswith("```"):
+        # Extract content between ```json and ```
+        match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL | re.IGNORECASE)
+        if match:
+            raw = match.group(1)
+        else:
+            # Fallback if missing trailing ```
+            raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+    
+    # Strip any leading/trailing text outside the JSON braces
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        raw = raw[start:end+1]
+        
+    return raw
+
 async def get_next_action(request: NextActionRequest, step_number: int) -> NextActionResponse:
     snapshot_json = _format_snapshot(request.snapshot)
     
@@ -91,8 +112,14 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
 
     try:
         raw = await llm_service.chat(messages, max_tokens=512, json_mode=True, agent_name="interactive")
-        data = json.loads(raw)
+        cleaned_raw = _clean_json_response(raw)
         
+        try:
+            data = json.loads(cleaned_raw)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse interactive agent JSON: {e}. Raw: {raw}")
+            raise ValueError(f"Invalid JSON returned by LLM: {str(e)}")
+            
         is_done = data.get("isDone", False)
         requires_confirm = data.get("requiresUserConfirmation", False)
         action_data = data.get("action")
@@ -119,4 +146,3 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
             error=f"Failed to determine next action: {str(e)}",
             isDone=True
         )
-

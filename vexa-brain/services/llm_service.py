@@ -67,6 +67,9 @@ async def chat(
 
                 usage = tracing_service.extract_token_usage(response)
                 content = response.choices[0].message.content
+                
+                if not content or not content.strip():
+                    raise ValueError("Groq returned empty content.")
 
                 _log_to_langsmith(
                     agent_name=agent_name,
@@ -120,7 +123,15 @@ async def chat(
 
                 if resp.status_code == 200:
                     data = resp.json()
-                    content = data["choices"][0]["message"]["content"]
+                    
+                    if "choices" not in data or not data["choices"]:
+                        raise ValueError(f"OpenRouter model {model_name} returned no choices: {data}")
+                        
+                    content = data["choices"][0]["message"].get("content")
+                    
+                    if not content or not content.strip():
+                        raise ValueError(f"OpenRouter model {model_name} returned empty content.")
+                        
                     latency_ms = (time.time() - start_time) * 1000
                     usage = data.get("usage", {})
 
