@@ -23,18 +23,73 @@ logger = logging.getLogger(__name__)
 # Base path for knowledge files — relative to vexa-brain/
 KNOWLEDGE_BASE_DIR = Path(__file__).parent.parent / "knowledge"
 
-# Maximum tokens worth of knowledge to inject per request
-# Roughly 1 token ≈ 4 chars, so 800 tokens ≈ 3500 chars
-MAX_CONTEXT_CHARS = 3500
+# Maximum context character budget for retrieved sections
+MAX_CONTEXT_CHARS = 1800
 
 # Tag-to-file mapping — built on startup from frontmatter
 _tag_index: Dict[str, List[str]] = {}
-_node_cache: Dict[str, dict] = {}  # rel_path -> {frontmatter, content, path}
+_node_cache: Dict[str, dict] = {}       # rel_path -> {frontmatter, content, path}
+_section_cache: List[dict] = []         # [{file_rel_path, file_title, heading, content, tags, keywords}]
 
 
 def init():
     """Synchronous init fallback for local file loading."""
     _load_from_files()
+
+
+def _parse_sections(rel_path: str, title: str, tags: List[str], content: str) -> List[dict]:
+    """Split markdown content into heading sections (#, ##, ###)."""
+    sections = []
+    lines = content.splitlines()
+    
+    current_heading = "Overview"
+    current_lines = []
+
+    for line in lines:
+        match = re.match(r'^(#{1,6})\s+(.+)$', line.strip())
+        if match:
+            # Save previous section if non-empty
+            section_text = "\n".join(current_lines).strip()
+            if section_text:
+                sections.append({
+                    "file_rel_path": rel_path,
+                    "file_title": title,
+                    "heading": current_heading,
+                    "content": section_text,
+                    "tags": tags,
+                    "heading_keywords": set(re.findall(r'[a-z0-9]+', current_heading.lower()))
+                })
+            current_heading = match.group(2).strip()
+            current_lines = []
+        else:
+            current_lines.append(line)
+
+    # Add final section
+    section_text = "\n".join(current_lines).strip()
+    if section_text:
+        sections.append({
+            "file_rel_path": rel_path,
+            "file_title": title,
+            "heading": current_heading,
+            "content": section_text,
+            "tags": tags,
+            "heading_keywords": set(re.findall(r'[a-z0-9]+', current_heading.lower()))
+        })
+
+    return sections
+
+
+def _rebuild_section_cache():
+    """Build section-level chunk cache from all node cache items."""
+    global _section_cache
+    _section_cache = []
+    for rel_path, node in _node_cache.items():
+        fm = node.get("frontmatter", {})
+        title = fm.get("title", rel_path)
+        tags = fm.get("tags", [])
+        content = node.get("content", "")
+        sec_list = _parse_sections(rel_path, title, tags, content)
+        _section_cache.extend(sec_list)
 
 
 async def init_async():
@@ -46,11 +101,9 @@ async def init_async():
     await neo4j_service.connect()
 
     if neo4j_service.is_connected():
-        # Seed Neo4j from local files if empty
         if KNOWLEDGE_BASE_DIR.exists():
             await neo4j_service.seed_from_markdown_if_empty(KNOWLEDGE_BASE_DIR)
 
-        # Load from Neo4j Graph DB
         nodes = await neo4j_service.fetch_all_nodes()
         logger.info(f"Knowledge service: loading {len(nodes)} OKF nodes from Neo4j Graph DB")
 
@@ -73,7 +126,6 @@ async def init_async():
                 "path": KNOWLEDGE_BASE_DIR / rel_path
             }
 
-            # Index tags
             for tag in tags:
                 if tag:
                     tag_lower = tag.lower()
@@ -82,7 +134,6 @@ async def init_async():
                     if rel_path not in _tag_index[tag_lower]:
                         _tag_index[tag_lower].append(rel_path)
 
-            # Index title words
             title = frontmatter.get("title", "")
             for word in title.lower().split():
                 word = re.sub(r'[^a-z0-9]', '', word)
@@ -92,7 +143,8 @@ async def init_async():
                     if rel_path not in _tag_index[word]:
                         _tag_index[word].append(rel_path)
 
-        logger.info(f"Knowledge service (Neo4j): indexed {len(_node_cache)} nodes, {len(_tag_index)} tags")
+        _rebuild_section_cache()
+        logger.info(f"Knowledge service (Neo4j): indexed {len(_node_cache)} nodes, {len(_section_cache)} sections, {len(_tag_index)} tags")
     else:
         logger.warning("Neo4j not connected. Falling back to local filesystem OKF files.")
         _load_from_files()
@@ -122,7 +174,6 @@ def _load_from_files():
                 "path": md_file
             }
 
-            # Index by tags
             tags = frontmatter.get("tags", [])
             for tag in tags:
                 tag_lower = tag.lower()
@@ -130,7 +181,6 @@ def _load_from_files():
                     _tag_index[tag_lower] = []
                 _tag_index[tag_lower].append(rel_path)
 
-            # Also index by title words
             title = frontmatter.get("title", "")
             for word in title.lower().split():
                 word = re.sub(r'[^a-z0-9]', '', word)
@@ -142,7 +192,8 @@ def _load_from_files():
         except Exception as e:
             logger.warning(f"Failed to parse OKF node {md_file}: {e}")
 
-    logger.info(f"Knowledge service (Filesystem): indexed {len(_node_cache)} nodes, {len(_tag_index)} tags")
+    _rebuild_section_cache()
+    logger.info(f"Knowledge service (Filesystem): indexed {len(_node_cache)} nodes, {len(_section_cache)} sections, {len(_tag_index)} tags")
 
 
 def _parse_okf_file(filepath: Path) -> Tuple[dict, str]:
@@ -161,56 +212,71 @@ def _parse_okf_file(filepath: Path) -> Tuple[dict, str]:
 
 async def query_relevant(user_prompt: str, user_id: str = "") -> str:
     """
-    Given a user message, return ONLY the relevant knowledge context.
+    Section-level OKF Retrieval Engine:
+    Finds and returns ONLY the specific relevant heading section(s) rather than dumping entire Markdown files.
     """
     if not _node_cache:
         await init_async()
 
-    if not _node_cache:
+    if not _section_cache:
         return "No knowledge base available."
 
-    # Extract keywords from user prompt
-    keywords = _extract_keywords(user_prompt)
+    keywords = set(_extract_keywords(user_prompt))
 
-    # Score each node by relevance
-    scores: Dict[str, float] = {}
-    for keyword in keywords:
-        if keyword in _tag_index:
-            for node_path in _tag_index[keyword]:
-                scores[node_path] = scores.get(node_path, 0) + 2.0
+    # Score sections individually
+    section_scores: List[Tuple[dict, float]] = []
 
-        for tag, paths in _tag_index.items():
-            if tag.startswith(keyword) or keyword.startswith(tag):
-                for node_path in paths:
-                    scores[node_path] = scores.get(node_path, 0) + 1.0
+    for sec in _section_cache:
+        score = 0.0
+        heading_kw = sec["heading_keywords"]
+        content_lower = sec["content"].lower()
 
-    for node_path, node_data in _node_cache.items():
-        content_lower = node_data["content"].lower()
-        for keyword in keywords:
-            if keyword in content_lower:
-                scores[node_path] = scores.get(node_path, 0) + 0.5
+        # 1. High match for keyword in heading (e.g. "Social & Profile Links")
+        heading_matches = keywords.intersection(heading_kw)
+        score += len(heading_matches) * 4.0
 
-    if not scores:
+        # 2. Tag match for file
+        for tag in sec["tags"]:
+            tag_lower = str(tag).lower()
+            if tag_lower in keywords:
+                score += 2.0
+
+        # 3. Content match for keywords
+        for kw in keywords:
+            if kw in content_lower:
+                score += 0.8
+
+        if score > 0.0:
+            section_scores.append((sec, score))
+
+    if not section_scores:
         return _get_identity_summary()
 
-    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    # Sort sections by highest score first
+    section_scores.sort(key=lambda x: x[1], reverse=True)
+    top_score = section_scores[0][1]
 
     context_parts = []
     total_chars = 0
+    seen_section_keys = set()
 
-    for node_path, score in ranked:
-        node = _node_cache[node_path]
-        content = node["content"]
+    for sec, score in section_scores:
+        # Keep sections that have significant score relative to top match
+        if score < max(2.0, top_score * 0.4):
+            continue
 
-        if len(content) > 2500:
-            content = content[:2500] + "..."
+        sec_key = f"{sec['file_rel_path']}#{sec['heading']}"
+        if sec_key in seen_section_keys:
+            continue
+        seen_section_keys.add(sec_key)
 
-        if total_chars + len(content) > MAX_CONTEXT_CHARS:
+        formatted_chunk = f"[{sec['file_title']} > {sec['heading']}]\n{sec['content']}"
+
+        if total_chars + len(formatted_chunk) > MAX_CONTEXT_CHARS and context_parts:
             break
 
-        title = node["frontmatter"].get("title", node_path)
-        context_parts.append(f"[{title}]\n{content}")
-        total_chars += len(content)
+        context_parts.append(formatted_chunk)
+        total_chars += len(formatted_chunk)
 
     if not context_parts:
         return _get_identity_summary()

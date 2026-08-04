@@ -134,11 +134,25 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
 
         # Safety Loop Prevention: Check if previous action succeeded for a messaging reply goal
         prev_act = (request.previousAction or "").lower()
-        if "success" in prev_act and ("type_text" in prev_act or "send" in prev_act or "tap_element" in prev_act):
-            goal_lower = (request.goal or "").lower()
-            if any(kw in goal_lower for kw in ["reply", "send", "message", "text", "whatsapp", "hi", "dad"]):
+        goal_lower = (request.goal or "").lower()
+
+        if "success" in prev_act and ("type_text" in prev_act or "send" in prev_act):
+            if any(kw in goal_lower for kw in ["reply", "send a reply", "message dad", "text", "reply hi"]):
                 logger.info("InteractiveAgent: Messaging reply already executed in previous step. Auto-completing task.")
                 is_done = True
+
+        # Goal Verification for Search Tasks:
+        if "search" in goal_lower:
+            # Check if query was specified in goal
+            search_match = re.search(r'search\s+(?:for\s+)?["\']?([^"\']+)["\']?', goal_lower)
+            target_query = search_match.group(1).strip() if search_match else ""
+
+            if target_query:
+                typed_in_prev = target_query in prev_act
+                typed_in_curr = action_type == "TYPE_TEXT" and target_query in str(action_data.get("params", {})).lower()
+                if not (typed_in_prev or typed_in_curr) and is_done and action_type != "DONE":
+                    logger.info(f"InteractiveAgent: Search query '{target_query}' not executed yet. Continuing automation.")
+                    is_done = False
 
         action_step = None
         if not is_done and action_type != "DONE":

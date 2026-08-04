@@ -53,7 +53,10 @@ async def save_agent(
     Returns the agent ID.
     """
     if _db is None:
-        raise Exception("MongoDB not connected")
+        import uuid
+        fallback_id = f"local_{uuid.uuid4()}"
+        logger.warning(f"MongoDB not connected. Generated local agent ID: {fallback_id}")
+        return fallback_id
 
     doc = {
         "userId": user_id,
