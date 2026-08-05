@@ -81,6 +81,10 @@ SAFETY & INTENT CLASSIFICATION RULES:
 - Low-risk actions (OPEN_APP, TAP_ELEMENT, TYPE_TEXT, SCROLL_DOWN) do NOT need confirmation.
 - SEND_EMAIL always needs requiresConfirmation: true (user must review the draft).
 
+CRITICAL RESPONSE FORMATTING RULES FOR "reply":
+- ALWAYS provide complete, thorough, and untruncated answers. Never cut off mid-thought or leave lists/ideas incomplete.
+- When providing recommendations, ideas, feature suggestions, code, or step-by-step explanations, format them cleanly using structured Markdown (bullet points, bold key terms, numbered steps, clear line breaks) so that it renders clearly and readably in the mobile chat screen.
+
 If the user is just chatting or asking a question (not requesting a phone automation action), set "actions": [] and intent to "CONVERSATION".
 """
 
@@ -125,7 +129,7 @@ async def plan(memory: VexaMemory) -> VexaMemory:
         messages = [messages[0]] + memory.conversation_history + [messages[1]]
 
     try:
-        raw = await llm_service.chat(messages, json_mode=True, agent_name="planner")
+        raw = await llm_service.chat(messages, max_tokens=4096, json_mode=True, agent_name="planner")
         data = json.loads(raw)
 
         memory.intent     = data.get("intent", "CONVERSATION")
