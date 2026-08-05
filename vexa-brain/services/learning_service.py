@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 MIN_WORDS_FOR_LEARNING = 4
 
 # Learning prompt — asks LLM to extract structured facts
-EXTRACT_PROMPT = """Analyze this message from the user. Extract ONLY genuinely new, useful insights.
-Be very selective — only things worth remembering long-term.
+EXTRACT_PROMPT = """Analyze this message from the user. Extract ONLY genuinely useful long-term insights, system knowledge, architecture details, personal facts, or preferences.
+Be selective — only extract things worth remembering long-term for future assistance.
 
 Message: "{user_text}"
 
@@ -33,15 +33,17 @@ Bot reply context: "{bot_reply}"
 
 Output ONLY lines with actual new info, using these exact prefixes:
 FACT_PERSONAL: <new personal fact about the user — name, location, education, life events>
-FACT_CAREER: <career-related fact — job, interview, work event, company>
-FACT_PREFERENCE: <specific preference about how they like things done>
-FACT_TEMPORAL: <time-sensitive fact that may expire — e.g., "waiting for results">
+FACT_CAREER: <career-related fact — job, interview, work event, company, professional role>
+FACT_PROJECT: <project description, system architecture, component design, app specs, feature workflows>
+FACT_TECHNICAL: <tech stack, APIs, database structure, coding rules, development setup, frameworks>
+FACT_PREFERENCE: <specific preference about how they like things done, UI/code style, tools>
+FACT_TEMPORAL: <time-sensitive fact that may expire — e.g., "waiting for results", deadlines>
 SPEECH_PATTERN: <specific slang, unique phrase, or speech pattern>
 RELATIONSHIP: <person mentioned with context — who they are, relationship>
 
 If nothing new or noteworthy, output exactly: NOTHING_NEW
 
-Be strict. Most messages will be NOTHING_NEW. Only extract real, specific insights.
+Be strict against trivial chat, but ALWAYS extract technical specifications, system architecture, project concepts, personal facts, and preferences.
 Do NOT extract generic observations like "user is chatting" or "user asked a question"."""
 
 
@@ -49,6 +51,8 @@ Do NOT extract generic observations like "user is chatting" or "user asked a que
 FACT_ROUTING = {
     "FACT_PERSONAL": ("identity", "personal"),
     "FACT_CAREER": ("memory", "career_events"),
+    "FACT_PROJECT": ("projects", "architecture"),
+    "FACT_TECHNICAL": ("projects", "technical"),
     "FACT_PREFERENCE": ("preferences", "communication"),
     "FACT_TEMPORAL": ("memory", "temporal"),
     "SPEECH_PATTERN": ("speech", "profile"),
@@ -103,8 +107,8 @@ async def process_conversation(user_msg: str, bot_reply: str, intent: str):
 async def _extract_facts(user_msg: str, bot_reply: str) -> List[tuple]:
     """Use LLM to extract structured facts from a conversation turn."""
     prompt = EXTRACT_PROMPT.format(
-        user_text=user_msg[:500],  # Cap input to avoid token waste
-        bot_reply=bot_reply[:200] if bot_reply else "N/A"
+        user_text=user_msg[:8000],  # Cap input at 8000 chars (~1500-2000 tokens) to support full docs/architecture pastes
+        bot_reply=bot_reply[:500] if bot_reply else "N/A"
     )
 
     try:
@@ -113,7 +117,7 @@ async def _extract_facts(user_msg: str, bot_reply: str) -> List[tuple]:
             {"role": "user", "content": prompt}
         ]
 
-        response = await llm_service.chat(messages, temperature=0.1, max_tokens=300, agent_name="learning")
+        response = await llm_service.chat(messages, temperature=0.1, max_tokens=1000, agent_name="learning")
         response = response.strip()
 
         if "NOTHING_NEW" in response:
