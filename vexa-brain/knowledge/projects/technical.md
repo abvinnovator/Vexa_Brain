@@ -1,10 +1,10 @@
 ---
 confidence: 0.9
-last_updated: '2026-08-05'
+last_updated: "2026-08-05"
 status: stable
 tags:
-- projects
-- technical
+  - projects
+  - technical
 title: projects/technical
 type: knowledge
 ---
@@ -15,3 +15,4 @@ type: knowledge
 - The system uses a token-saving approach, retrieving only relevant nodes (~200 tokens) instead of the entire knowledge base (~2000+ tokens).
 - The system's self-learning mechanism extracts facts from user messages, classifies them into domains, and merges them into the OKF knowledge files with deduplication.
 - The personalization engine builds a dynamic instruction block for the LLM based on the user's speech profile, learned patterns, and language mix.
+- FastAPI server running on Render and using groq llm model.

@@ -84,6 +84,10 @@ class NextActionRequest(BaseModel):
     goal: str
     snapshot: ScreenSnapshot
     previousAction: Optional[str] = None
+    plannedActions: Optional[List[Dict[str, Any]]] = None   # Planner's original action steps
+    plannedContent: Optional[str] = None                     # Planner's drafted text (reply) for TYPE_TEXT
+    stepNumber: Optional[int] = 1                            # Current execution step count
+    maxSteps: Optional[int] = 15                             # Safety limit — abort after this many steps
 
 class NextActionResponse(BaseModel):
     action: Optional[ActionStep] = None
