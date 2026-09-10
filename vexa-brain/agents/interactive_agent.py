@@ -29,6 +29,7 @@ PARAMS FORMAT:
 - PRESS_BACK: {}
 - WAIT: {"durationMs": 3000}
 - WAIT_FOR_USER: {"message": "Reason"}
+- QUERY_USER: {"question": "Question for user"}
 - DONE: {}
 
 CRITICAL RULES:
@@ -43,23 +44,32 @@ TYPE_TEXT CONTENT RULE (VERY IMPORTANT):
 - NEVER generate your own version of content that was already planned. Copy the planned text EXACTLY.
 
 MULTI-STEP SOCIAL MEDIA POSTING (e.g. LinkedIn, Twitter, Instagram):
-You must follow this exact multi-step progression:
-1. Open App (OPEN_APP).
-2. Find and tap the compose/post button (e.g., "Post 3 of 5", "Start a post", "tab_post", "share").
-3. Once on the post composition screen, find the editable text field (e.g., "What do you want to talk about?", "Share your thoughts", or first editable field) and TYPE_TEXT with the PLANNED CONTENT.
-4. After typing the content, BEFORE tapping final publish, output WAIT_FOR_USER to ask the user for confirmation.
-5. After user confirms (previousAction says user confirmed), tap the final "Post" / "Share" / "Tweet" button.
-6. ONLY AFTER the final post button was tapped, output DONE with "isDone": true.
-CRITICAL: NEVER claim DONE or stop after simply opening the app or tapping the compose button! The post MUST be typed and submitted.
+You must follow this exact multi-step progression — DO NOT skip any step:
+1. Open App (OPEN_APP) — just opens the app, proceed immediately.
+2. Find and tap the compose/post button (e.g., "Post 3 of 5", "Start a post", "tab_post", "share") — this is a NAVIGATION tap, NOT a publish action. Proceed immediately WITHOUT confirmation.
+3. Once on the post composition screen, tap the text field first (TAP_FIELD) if needed, then TYPE_TEXT with the PLANNED CONTENT. Proceed immediately.
+4. After typing is complete: output WAIT_FOR_USER with "requiresUserConfirmation": true to ask: "Post content is ready. Would you like to attach any images/videos before posting? Confirm to post now, or cancel to add attachments."
+5. After user confirms: tap the final "Post" / "Share" / "Tweet" button. This is the ONLY publish action.
+6. After the publish button tap succeeds: output DONE with "isDone": true.
 
-CONFIRMATION REQUIRED — MUST output WAIT_FOR_USER BEFORE these actions:
-- Publishing or submitting social media posts (LinkedIn Post, Tweet, Instagram Post, etc.)
-- Sending emails or messages to contacts
-- Making payments, purchases, or money transfers
-- Confirming bookings or reservations
-- Deleting content permanently
-- Any action that CANNOT be easily undone
-When outputting WAIT_FOR_USER for confirmation, set "requiresUserConfirmation": true and include a clear message explaining what will happen next.
+CRITICAL DISTINCTIONS:
+- Tapping "Post" or compose icon to OPEN the composer = NAVIGATION (no confirmation needed)
+- Tapping "Post" or "Share" to SUBMIT/PUBLISH after content is typed = PUBLISHING (needs prior confirmation)
+- How to tell the difference: if TYPE_TEXT has NOT been executed yet in the action history, then "Post" taps are NAVIGATION. If TYPE_TEXT HAS been executed, then "Post" taps are PUBLISHING.
+
+CONFIRMATION RULES (STRICT):
+- ONLY output WAIT_FOR_USER with requiresUserConfirmation=true in these cases:
+  1. AFTER typing post content, BEFORE the final publish/submit tap
+  2. Before any payment, purchase, or money transfer
+  3. Before confirming a booking or reservation
+  4. Before deleting content permanently
+  5. Before sending OTP or entering sensitive credentials
+- NEVER output WAIT_FOR_USER for:
+  1. Opening apps
+  2. Navigating to compose/post screens
+  3. Tapping input fields
+  4. Scrolling
+  5. Any navigation that is NOT a final irreversible action
 
 UNEXPECTED SCREEN HANDLING:
 - If a bottom sheet, popup, dialog, or overlay appears that was NOT expected (not part of the PLANNED ACTIONS), try PRESS_BACK to dismiss it first.
@@ -188,37 +198,67 @@ def _format_planned_actions(planned_actions: list) -> str:
     return "\n".join(lines)
 
 
-def _is_confirmation_step(planned_actions: list, current_step_type: str, current_params: dict) -> bool:
-    """Check if the current action matches a planned step that requires confirmation."""
-    if not planned_actions:
-        return False
+def _has_typed_content(action_history: list, prev_action: str) -> bool:
+    """Check if TYPE_TEXT has been successfully executed in the history."""
+    history_text = " ".join(action_history or []).lower()
+    prev_lower = (prev_action or "").lower()
+    combined = history_text + " " + prev_lower
+    return "type_text" in combined and "success" in combined
+
+
+def _is_critical_confirmation_needed(action_type: str, action_params: dict, action_desc: str) -> bool:
+    """Detect if an action requires mandatory confirmation (payments, OTP, bookings, deletion).
     
-    for action in planned_actions:
-        if action.get("requiresConfirmation", False):
-            # Check if this is the step right before a confirmation-required step
-            if action.get("type") == current_step_type:
+    This does NOT include social media posting — that is handled by context-aware logic.
+    """
+    desc_lower = (action_desc or "").lower()
+    text_lower = str(action_params.get("text", "")).lower()
+    combined = desc_lower + " " + text_lower
+    
+    # Critical actions that ALWAYS need confirmation regardless of context
+    critical_keywords = [
+        "pay", "payment", "purchase", "buy", "checkout",
+        "place order", "confirm order", "complete purchase",
+        "delete", "remove permanently",
+        "confirm booking", "book now", "reserve",
+        "otp", "verify", "enter code",
+        "transfer", "send money"
+    ]
+    
+    if action_type in ("TAP_ELEMENT", "TAP_FIELD"):
+        for kw in critical_keywords:
+            if kw in combined:
                 return True
     
     return False
 
 
-def _is_publishing_action(action_type: str, action_params: dict, action_desc: str) -> bool:
-    """Detect if an action is a publishing/submitting action that needs confirmation."""
+def _is_final_publish_action(action_type: str, action_params: dict, action_desc: str,
+                              has_typed: bool) -> bool:
+    """Detect if this action is the FINAL publish/submit tap (after content has been typed).
+    
+    Key distinction: Only returns True if content has already been typed.
+    If content hasn't been typed yet, a "Post" tap is navigation, not publishing.
+    """
+    if not has_typed:
+        return False  # Can't be a publish action if nothing has been typed
+    
+    if action_type != "TAP_ELEMENT":
+        return False
+    
     desc_lower = (action_desc or "").lower()
     text_lower = str(action_params.get("text", "")).lower()
     
-    # Check for publishing-related tap actions
     publishing_keywords = [
-        "post", "publish", "submit", "send", "tweet", "share",
-        "confirm", "place order", "pay", "purchase", "delete"
+        "post", "publish", "submit", "send", "tweet", "share"
     ]
     
-    if action_type == "TAP_ELEMENT":
-        for kw in publishing_keywords:
-            if kw in text_lower or kw in desc_lower:
-                return True
+    # Check description for "final", "publish", "submit" indicators
+    is_final_desc = any(kw in desc_lower for kw in ["final", "publish", "submit"])
+    is_publish_text = any(kw in text_lower for kw in publishing_keywords)
+    is_publish_desc = any(kw in desc_lower for kw in publishing_keywords)
     
-    return False
+    return is_publish_text or is_publish_desc or is_final_desc
 
 
 async def get_next_action(request: NextActionRequest, step_number: int) -> NextActionResponse:
@@ -249,6 +289,9 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
     planned_type_text = _extract_planned_type_text(request.plannedActions or [])
     planned_content = request.plannedContent or planned_type_text or ""
     
+    # ── Derive execution state from history ──
+    has_typed = _has_typed_content(request.actionHistory, request.previousAction)
+    
     # ── Build the prompt with full context ──
     prompt_parts = [f"GOAL: {request.goal}"]
     
@@ -257,10 +300,19 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
     if planned_content:
         prompt_parts.append(f"PLANNED CONTENT (use this EXACT text for TYPE_TEXT, do NOT make up your own):\n\"{planned_content}\"")
     
+    # Inject execution state so the LLM knows what has been done
+    state_hints = []
+    if has_typed:
+        state_hints.append("CONTENT HAS BEEN TYPED — next step should be confirmation or final publish")
+    else:
+        state_hints.append("CONTENT HAS NOT BEEN TYPED YET — focus on navigating to composer and typing")
+    if state_hints:
+        prompt_parts.append(f"EXECUTION STATE: {'; '.join(state_hints)}")
+    
     prompt_parts.append(f"STEP: {current_step} of {max_steps} max")
     prompt_parts.append(f"PREVIOUS: {request.previousAction or 'None'}")
     if request.actionHistory:
-        history_lines = "\n".join([f"  - {h}" for h in request.actionHistory[-5:]])
+        history_lines = "\n".join([f"  - {h}" for h in request.actionHistory[-6:]])
         prompt_parts.append(f"RECENT ACTION HISTORY:\n{history_lines}")
     prompt_parts.append(f"SNAPSHOT: {snapshot_json}")
     prompt_parts.append("What is the next action?")
@@ -294,21 +346,46 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
         if action_type == "DONE":
             is_done = True
 
-        # ── SAFETY: Force confirmation for publishing/destructive actions ──
+        # ── SAFETY: Force confirmation for CRITICAL actions (payments, OTP, bookings, deletions) ──
+        # These ALWAYS need confirmation regardless of context
         if not is_done and action_type != "DONE" and action_type != "WAIT_FOR_USER":
-            if _is_publishing_action(action_type, action_params, action_desc):
-                logger.info(f"InteractiveAgent: Detected publishing action '{action_desc}'. Forcing WAIT_FOR_USER confirmation.")
+            if _is_critical_confirmation_needed(action_type, action_params, action_desc):
+                logger.info(f"InteractiveAgent: Critical action detected '{action_desc}'. Forcing WAIT_FOR_USER.")
                 return NextActionResponse(
                     action=ActionStep(
                         step=current_step,
                         type="WAIT_FOR_USER",
-                        params={"message": f"Ready to proceed? Next action: {action_desc}. Confirm to continue."},
-                        description=f"Confirmation required before: {action_desc}",
+                        params={"message": f"This action requires your confirmation: {action_desc}. Confirm to proceed."},
+                        description=f"Confirmation required: {action_desc}",
                         requiresConfirmation=True
                     ),
                     isDone=False,
                     requiresUserConfirmation=True
                 )
+        
+        # ── SAFETY: Context-aware confirmation for PUBLISHING actions ──
+        # Only trigger if content has been typed AND this is the final publish tap
+        if not is_done and action_type != "DONE" and action_type != "WAIT_FOR_USER":
+            if _is_final_publish_action(action_type, action_params, action_desc, has_typed):
+                # Check if user has already confirmed in a previous step
+                prev_lower = (request.previousAction or "").lower()
+                already_confirmed = "user confirmed" in prev_lower or "wait_for_user" in prev_lower
+                
+                if not already_confirmed:
+                    logger.info(f"InteractiveAgent: Final publish action detected after content typed. Requesting confirmation.")
+                    return NextActionResponse(
+                        action=ActionStep(
+                            step=current_step,
+                            type="WAIT_FOR_USER",
+                            params={"message": "Post content is ready. Would you like to add any images/videos before posting? Confirm to post now, or cancel to add attachments."},
+                            description="Confirm before publishing",
+                            requiresConfirmation=True
+                        ),
+                        isDone=False,
+                        requiresUserConfirmation=True
+                    )
+                else:
+                    logger.info(f"InteractiveAgent: User already confirmed. Proceeding with publish action: {action_desc}")
         
         # ── SAFETY: Enforce planned TYPE_TEXT content ──
         if action_type == "TYPE_TEXT" and planned_content:
@@ -328,11 +405,7 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
         is_posting_goal = any(kw in goal_lower for kw in ["post", "publish", "share", "tweet", "linkedin"])
 
         if is_posting_goal and (is_done or action_type == "DONE"):
-            history_text = " ".join(request.actionHistory or []).lower() + " " + prev_act
-            has_typed_content = "type_text" in history_text or action_type == "TYPE_TEXT"
-            
-            # If we haven't typed the post content yet, we CANNOT be done!
-            if not has_typed_content and planned_content:
+            if not has_typed and planned_content:
                 logger.warning("InteractiveAgent: Premature DONE detected before post content was typed! Redirecting to post composition.")
                 is_done = False
                 # Check if current snapshot has editable fields (compose screen)
@@ -340,11 +413,16 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
                     action_type = "TYPE_TEXT"
                     action_params = {"text": planned_content}
                     action_desc = "Enter the post content into the composition field"
-                elif any("post" in (c.text or "").lower() for c in request.snapshot.clickableElements):
-                    post_elem = next((c.text for c in request.snapshot.clickableElements if "post" in (c.text or "").lower()), "Post")
+                elif any("post" in (c.text or "").lower() or "start" in (c.text or "").lower()
+                         for c in request.snapshot.clickableElements):
+                    post_elem = next(
+                        (c.text for c in request.snapshot.clickableElements
+                         if "post" in (c.text or "").lower() or "start" in (c.text or "").lower()),
+                        "Post"
+                    )
                     action_type = "TAP_ELEMENT"
                     action_params = {"text": post_elem}
-                    action_desc = f"Tap {post_elem} to open post composer"
+                    action_desc = f"Tap '{post_elem}' to open post composer"
                 else:
                     action_type = "WAIT"
                     action_params = {"durationMs": 2000}
