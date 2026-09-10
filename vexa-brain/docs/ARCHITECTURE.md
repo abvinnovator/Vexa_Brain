@@ -146,21 +146,60 @@ source: conversation
 (Markdown content here)
 ```
 
-### How Retrieval Works
+### How Retrieval Works (v3.0)
 
-1. User says: "What's my interview status?"
-2. Knowledge service extracts keywords: `["interview", "status"]`
-3. Tags matched: `interview` → `memory/career_events.md`, `identity/professional.md`
-4. Returns ONLY those nodes (~200 tokens) instead of everything (~2000+ tokens)
+```
+User Query: "How many DSATs do I have?"
+    ↓
+1. Keyword Extraction: ["dsat", "dsats"]
+    ↓
+2. LLM Semantic Expansion: ["dsat", "dsats", "assessment", "test", "score",
+                             "performance", "evaluation", "data_structures"]
+    ↓
+3. Multi-signal Scoring (per section):
+   ├── Heading keyword match    × 3.0 pts
+   ├── Micro-fact keyword match × 3.0 pts (NEW: indexes bullet-point facts)
+   ├── Tag match                × 1.5 pts
+   ├── Content substring match  × 2.0 pts (was 0.8)
+   └── Frequency boost          × 0.5 pts/occurrence
+    ↓
+4. Fallback: Neo4j full-text content search (if scores < 2.0)
+    ↓
+5. Always-include: identity baseline context
+    ↓
+Returns relevant sections (~300-600 tokens)
+```
+
+### Retrieval Gap v2.0 → v3.0 (Solved)
+
+v2.0 had a critical blind spot: the learning service appends facts as raw
+bullet points (e.g., `- Vamsi has received 2 DSATs`) with **no tags, no headings**.
+These facts were invisible to the tag/heading-based retrieval scorer.
+
+**Example failure in v2.0:**
+- Query: `"How many DSATs do I have?"`
+- Keyword extracted: `dsat`
+- Tag index: no `dsat` tag exists → 0 pts
+- Heading match: no heading contains `dsat` → 0 pts
+- Content match: `dsat` found in raw content → only 0.8 pts
+- Score threshold: `max(2.0, top_score × 0.4)` → **0.8 < 2.0 = discarded!**
+
+**v3.0 solution — 4 layers:**
+1. **LLM semantic expansion** — expands `dsat` → `[assessment, test, score, ...]`
+2. **Micro-section indexing** — each `- bullet point` fact is indexed separately
+   with auto-extracted keywords, making it individually searchable
+3. **Improved scoring** — content match weight raised to 2.0, threshold lowered
+4. **Neo4j full-text fallback** — if all in-memory scoring fails, queries Neo4j
+   content directly as last resort
 
 ### Token Savings
 
-| Metric | Before (v1) | After (v2) |
-|--------|------------|------------|
-| Memory context per request | ~800 tokens (ALL of memory.txt) | ~200 tokens (relevant nodes only) |
-| Speech profile per request | ~400 tokens (ALL) | ~100 tokens (compact) |
-| Total per request | ~3200 tokens | ~1100-1500 tokens |
-| **Savings** | — | **~55-65% fewer tokens** |
+| Metric | v1 (flat file) | v2 (OKF tags) | v3 (semantic) |
+|--------|---------------|---------------|---------------|
+| Memory context per request | ~800 tokens | ~200 tokens | ~300-600 tokens |
+| Retrieval accuracy | Low | Medium | High |
+| Handles appended facts | ❌ | ❌ | ✅ |
+| Semantic understanding | ❌ | ❌ | ✅ (LLM-expanded) |
 
 ---
 

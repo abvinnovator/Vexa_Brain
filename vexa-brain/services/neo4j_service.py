@@ -148,6 +148,79 @@ async def upsert_node(
         logger.error(f"Failed to upsert node {path} in Neo4j: {e}")
 
 
+async def search_content(keywords: List[str], max_results: int = 5) -> List[Dict]:
+    """
+    Full-text search across all OKF node content in Neo4j.
+    Used as a fallback when tag/heading matching returns weak results.
+
+    Returns list of dicts with: path, title, snippet (matching content excerpt).
+    """
+    if not _driver or not keywords:
+        return []
+
+    # Build a WHERE clause that matches any keyword in content (case-insensitive)
+    conditions = " OR ".join([f"toLower(n.content) CONTAINS toLower($kw{i})" for i in range(len(keywords))])
+    query = f"""
+    MATCH (n:OKFNode)
+    WHERE {conditions}
+    RETURN n.path as path,
+           n.title as title,
+           n.content as content
+    LIMIT $max_results
+    """
+
+    params = {f"kw{i}": kw for i, kw in enumerate(keywords)}
+    params["max_results"] = max_results
+
+    try:
+        async with _driver.session(database=settings.neo4j_database or None) as session:
+            result = await session.run(query, **params)
+            records = await result.data()
+
+            # Extract relevant snippets from matched content
+            results = []
+            for record in records:
+                content = record.get("content", "")
+                snippet = _extract_snippet(content, keywords)
+                results.append({
+                    "path": record.get("path", ""),
+                    "title": record.get("title", ""),
+                    "snippet": snippet
+                })
+
+            logger.info(f"Neo4j content search: {len(results)} results for keywords {keywords}")
+            return results
+    except Exception as e:
+        logger.error(f"Neo4j content search failed: {e}")
+        return []
+
+
+def _extract_snippet(content: str, keywords: List[str], context_chars: int = 300) -> str:
+    """Extract a relevant snippet from content around the first matching keyword."""
+    content_lower = content.lower()
+
+    for kw in keywords:
+        idx = content_lower.find(kw.lower())
+        if idx >= 0:
+            # Find the line containing the match and surrounding lines
+            start = max(0, content.rfind("\n", 0, idx))
+            end = content.find("\n", idx + len(kw))
+            if end == -1:
+                end = len(content)
+
+            # Expand to include surrounding context
+            line_start = max(0, content.rfind("\n", 0, start))
+            line_end = content.find("\n", end + 1)
+            if line_end == -1:
+                line_end = len(content)
+
+            snippet = content[line_start:min(line_end, line_start + context_chars)].strip()
+            return snippet
+
+    # No match found — return first N chars
+    return content[:context_chars].strip() if content else ""
+
+
 async def seed_from_markdown_if_empty(knowledge_dir: Path):
     """Seed Neo4j database from local Markdown files on initial setup if Neo4j is empty."""
     if not _driver:

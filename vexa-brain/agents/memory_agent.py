@@ -1,8 +1,8 @@
 """
 MemoryAgent — Builds enriched context from multiple sources.
 
-v3.0: Removed phone event behavioral context (no longer tracking events).
-Now uses saved agent summary instead of event-based behavioral data.
+v3.0: Enhanced retrieval with LLM-powered semantic search.
+Always includes identity baseline for personal context.
 """
 
 from services import mongodb_service, knowledge_service, personality_service
@@ -18,7 +18,7 @@ async def enrich(memory: VexaMemory) -> VexaMemory:
     MemoryAgent: Builds context from multiple sources.
 
     1. Saved agents summary (replaces old MongoDB behavioral data)
-    2. OKF knowledge retrieval (smart, relevant-only)
+    2. OKF knowledge retrieval (LLM-expanded semantic search)
     3. Personality prompt (dynamic style matching)
     """
     uid = memory.user_id
@@ -38,13 +38,19 @@ Current time: {datetime.now().strftime('%A %I:%M %p')}""".strip()
         logger.error(f"MemoryAgent agent context error: {e}")
         memory.behavioral_context = "No saved agents available."
 
-    # ── 2. OKF Knowledge Retrieval ──
+    # ── 2. OKF Knowledge Retrieval (Enhanced v3.0) ──
     try:
         memory.knowledge_context = await knowledge_service.query_relevant(
             memory.raw_prompt, uid
         )
         memory.communication_profile = await knowledge_service.get_communication_profile()
-        logger.info(f"MemoryAgent: OKF knowledge retrieved ({len(memory.knowledge_context)} chars)")
+
+        context_len = len(memory.knowledge_context)
+        logger.info(f"MemoryAgent: OKF knowledge retrieved ({context_len} chars)")
+
+        if context_len < 50:
+            logger.warning(f"MemoryAgent: Very little knowledge context retrieved for prompt: '{memory.raw_prompt[:60]}'")
+
     except Exception as e:
         logger.error(f"MemoryAgent OKF error: {e}")
         memory.knowledge_context = ""

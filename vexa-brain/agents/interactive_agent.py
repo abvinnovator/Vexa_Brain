@@ -21,7 +21,7 @@ Given GOAL, PLANNED ACTIONS, PREVIOUS ACTION, and SCREEN SNAPSHOT, output the SI
 }
 
 PARAMS FORMAT:
-- OPEN_APP: {"packageName": "com.whatsapp"}  (Use exact package names: com.whatsapp, com.ubercab, etc.)
+- OPEN_APP: {"packageName": "com.whatsapp"}  (Use exact package names: com.whatsapp, com.linkedin.android, com.ubercab, etc.)
 - TAP_ELEMENT: {"text": "Exact element text"}
 - TAP_FIELD: {"fieldHint": "Hint or label"}
 - TYPE_TEXT: {"text": "String to type"}
@@ -42,6 +42,16 @@ TYPE_TEXT CONTENT RULE (VERY IMPORTANT):
 - If PLANNED CONTENT is provided, use it as the TYPE_TEXT content for any text composition step (e.g., writing a post, composing a message).
 - NEVER generate your own version of content that was already planned. Copy the planned text EXACTLY.
 
+MULTI-STEP SOCIAL MEDIA POSTING (e.g. LinkedIn, Twitter, Instagram):
+You must follow this exact multi-step progression:
+1. Open App (OPEN_APP).
+2. Find and tap the compose/post button (e.g., "Post 3 of 5", "Start a post", "tab_post", "share").
+3. Once on the post composition screen, find the editable text field (e.g., "What do you want to talk about?", "Share your thoughts", or first editable field) and TYPE_TEXT with the PLANNED CONTENT.
+4. After typing the content, BEFORE tapping final publish, output WAIT_FOR_USER to ask the user for confirmation.
+5. After user confirms (previousAction says user confirmed), tap the final "Post" / "Share" / "Tweet" button.
+6. ONLY AFTER the final post button was tapped, output DONE with "isDone": true.
+CRITICAL: NEVER claim DONE or stop after simply opening the app or tapping the compose button! The post MUST be typed and submitted.
+
 CONFIRMATION REQUIRED — MUST output WAIT_FOR_USER BEFORE these actions:
 - Publishing or submitting social media posts (LinkedIn Post, Tweet, Instagram Post, etc.)
 - Sending emails or messages to contacts
@@ -61,8 +71,13 @@ TASK COMPLETION — output "isDone": true with DONE when:
 - The PREVIOUS action was the final step in the plan and it succeeded.
 - WAIT_FOR_USER was shown and the user confirmed, AND the final action (like posting) has been executed successfully.
 
-NO REPETITION:
+STRICT NO REPETITION & NO LOOPS:
 - NEVER repeat the exact same action (same type + same params) if the PREVIOUS action succeeded.
+- If an action FAILED or if PREVIOUS says "screen did not change" or contains "[LOOP ALERT]":
+  Do NOT repeat that same action! You MUST adapt:
+  1. If element not visible on screen, output SCROLL_DOWN or WAIT.
+  2. If a popup/sheet is blocking, output PRESS_BACK.
+  3. If another relevant element exists in clickableElements, try that element instead.
 - If TYPE_TEXT succeeded, move to the next step — do NOT type again.
 - If TAP_ELEMENT succeeded, move to the next step — do NOT tap the same element.
 
@@ -244,6 +259,9 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
     
     prompt_parts.append(f"STEP: {current_step} of {max_steps} max")
     prompt_parts.append(f"PREVIOUS: {request.previousAction or 'None'}")
+    if request.actionHistory:
+        history_lines = "\n".join([f"  - {h}" for h in request.actionHistory[-5:]])
+        prompt_parts.append(f"RECENT ACTION HISTORY:\n{history_lines}")
     prompt_parts.append(f"SNAPSHOT: {snapshot_json}")
     prompt_parts.append("What is the next action?")
     
@@ -303,11 +321,36 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
                     logger.warning(f"  LLM wanted: {current_text[:100]}...")
                     logger.warning(f"  Plan has:   {planned_content[:100]}...")
                     action_params["text"] = planned_content
+
+        # ── Safety Guard: Prevent Premature Completion for Social Posts / Publishing ──
+        goal_lower = (request.goal or "").lower()
+        prev_act = (request.previousAction or "").lower()
+        is_posting_goal = any(kw in goal_lower for kw in ["post", "publish", "share", "tweet", "linkedin"])
+
+        if is_posting_goal and (is_done or action_type == "DONE"):
+            history_text = " ".join(request.actionHistory or []).lower() + " " + prev_act
+            has_typed_content = "type_text" in history_text or action_type == "TYPE_TEXT"
+            
+            # If we haven't typed the post content yet, we CANNOT be done!
+            if not has_typed_content and planned_content:
+                logger.warning("InteractiveAgent: Premature DONE detected before post content was typed! Redirecting to post composition.")
+                is_done = False
+                # Check if current snapshot has editable fields (compose screen)
+                if request.snapshot.editableFields:
+                    action_type = "TYPE_TEXT"
+                    action_params = {"text": planned_content}
+                    action_desc = "Enter the post content into the composition field"
+                elif any("post" in (c.text or "").lower() for c in request.snapshot.clickableElements):
+                    post_elem = next((c.text for c in request.snapshot.clickableElements if "post" in (c.text or "").lower()), "Post")
+                    action_type = "TAP_ELEMENT"
+                    action_params = {"text": post_elem}
+                    action_desc = f"Tap {post_elem} to open post composer"
+                else:
+                    action_type = "WAIT"
+                    action_params = {"durationMs": 2000}
+                    action_desc = "Wait for post compose screen to load"
         
         # ── Safety Loop Prevention: Check if previous action succeeded for a messaging reply goal ──
-        prev_act = (request.previousAction or "").lower()
-        goal_lower = (request.goal or "").lower()
-
         if "success" in prev_act and ("type_text" in prev_act or "send" in prev_act):
             if any(kw in goal_lower for kw in ["reply", "send a reply", "message dad", "text", "reply hi"]):
                 logger.info("InteractiveAgent: Messaging reply already executed in previous step. Auto-completing task.")
@@ -315,7 +358,6 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
 
         # Goal Verification for Search Tasks:
         if "search" in goal_lower:
-            # Check if query was specified in goal
             search_match = re.search(r'search\s+(?:for\s+)?["\x27]?([^"\x27]+)["\x27]?', goal_lower)
             target_query = search_match.group(1).strip() if search_match else ""
 
@@ -333,7 +375,7 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
                 step=current_step,
                 type=action_type,
                 params=action_params,
-                description=action_data.get("description", "Next step"),
+                description=action_data.get("description", action_desc or "Next step"),
                 requiresConfirmation=requires_confirm
             )
             
@@ -347,7 +389,7 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
         logger.error(f"InteractiveAgent error: {e}")
         return NextActionResponse(
             error=f"Failed to determine next action: {str(e)}",
-            isDone=True
+            isDone=False
         )
 
 

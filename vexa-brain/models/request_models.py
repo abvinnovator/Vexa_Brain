@@ -88,6 +88,7 @@ class NextActionRequest(BaseModel):
     plannedContent: Optional[str] = None                     # Planner's drafted text (reply) for TYPE_TEXT
     stepNumber: Optional[int] = 1                            # Current execution step count
     maxSteps: Optional[int] = 15                             # Safety limit — abort after this many steps
+    actionHistory: Optional[List[str]] = None                # Sliding window of recent action history and outcomes
 
 class NextActionResponse(BaseModel):
     action: Optional[ActionStep] = None

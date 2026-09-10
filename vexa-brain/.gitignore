@@ -12,6 +12,7 @@ traces/
 logs.txt
 traces_after_automation/
 traces_before_running_automation/
+traces_today_10_sept/
 # Environment
 .env
 venv/

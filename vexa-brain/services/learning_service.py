@@ -41,6 +41,14 @@ FACT_TEMPORAL: <time-sensitive fact that may expire — e.g., "waiting for resul
 SPEECH_PATTERN: <specific slang, unique phrase, or speech pattern>
 RELATIONSHIP: <person mentioned with context — who they are, relationship>
 
+CRITICAL QUALITY RULES:
+- Each fact MUST be a COMPLETE, self-contained sentence with real information.
+- NEVER output just a name (e.g., "Vamsi") — that is NOT a fact.
+- NEVER output vague or trivial observations.
+- Each fact must contain WHO/WHAT + specific detail (e.g., "Vamsi received 2 DSATs at work" NOT just "Vamsi").
+- Do NOT extract facts that are just paraphrasing the bot's action (e.g., "Preparing a LinkedIn post").
+- Do NOT extract the current date/time as a temporal fact.
+
 If nothing new or noteworthy, output exactly: NOTHING_NEW
 
 Be strict against trivial chat, but ALWAYS extract technical specifications, system architecture, project concepts, personal facts, and preferences.
@@ -132,8 +140,12 @@ async def _extract_facts(user_msg: str, bot_reply: str) -> List[tuple]:
             for prefix in FACT_ROUTING.keys():
                 if line.startswith(f"{prefix}:"):
                     fact_text = line[len(prefix) + 1:].strip()
-                    if fact_text and len(fact_text) > 5:
+                    # Reject ultra-short facts (just a name, single word, etc.)
+                    # A real fact must be at least 15 chars and contain a space (multi-word)
+                    if fact_text and len(fact_text) > 15 and " " in fact_text:
                         facts.append((prefix, fact_text))
+                    elif fact_text:
+                        logger.debug(f"Rejected low-quality fact: {prefix}: {fact_text}")
                     break
 
         return facts
