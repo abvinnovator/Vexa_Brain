@@ -81,6 +81,13 @@ TASK COMPLETION — output "isDone": true with DONE when:
 - The PREVIOUS action was the final step in the plan and it succeeded.
 - WAIT_FOR_USER was shown and the user confirmed, AND the final action (like posting) has been executed successfully.
 
+ACTION OUTCOMES (in PREVIOUS / RECENT ACTION HISTORY, reported by the phone after verifying the screen):
+- "Success" = the action ran AND the screen changed.
+- "No effect" = the action ran but the screen did NOT change. If the element is still clearly the right target, you may repeat the SAME tap ONCE — the phone retries it with a real touch. If it has no effect twice, pick a different element, SCROLL_DOWN, or PRESS_BACK.
+- "Skipped" = the screen changed before your action could run, so it was not executed. Decide again from the new SNAPSHOT.
+- "Failed" = the action could not be performed (e.g. element not found).
+SNAPSHOT.packageName is the app in the foreground. A clickable with "selected": true is the tab/option that is ALREADY active — do not tap it to navigate there.
+
 STRICT NO REPETITION & NO LOOPS:
 - NEVER repeat the exact same action (same type + same params) if the PREVIOUS action succeeded.
 - If an action FAILED or if PREVIOUS says "screen did not change" or contains "[LOOP ALERT]":
@@ -118,6 +125,8 @@ def _format_snapshot(snapshot) -> str:
             elem = {"text": txt}
             if c.resourceId:
                 elem["resourceId"] = c.resourceId
+            if c.selected:
+                elem["selected"] = True
             compact_clickables.append(elem)
         if len(compact_clickables) >= 12:
             break
@@ -133,7 +142,13 @@ def _format_snapshot(snapshot) -> str:
         if len(compact_editables) >= 5:
             break
 
+    result = {}
+    if getattr(snapshot, "packageName", None):
+        result["packageName"] = snapshot.packageName
+    if getattr(snapshot, "activity", None):
+        result["activity"] = snapshot.activity.rsplit(".", 1)[-1]
     return json.dumps({
+        **result,
         "screenTexts": compact_texts,
         "clickableElements": compact_clickables,
         "editableFields": compact_editables
@@ -158,15 +173,33 @@ def _clean_json_response(raw: str) -> str:
     return raw
 
 
-def _extract_planned_type_text(planned_actions: list) -> str:
-    """Extract the TYPE_TEXT content from the planner's action steps."""
-    if not planned_actions:
-        return ""
-    for action in planned_actions:
+# A TYPE_TEXT at least this long is a message/post body; shorter ones are search terms, names, etc.
+BODY_MIN_CHARS = 40
+
+
+def _planned_type_texts(planned_actions: list) -> list:
+    """All TYPE_TEXT contents from the planner's action steps, in order."""
+    texts = []
+    for action in planned_actions or []:
         if action.get("type") == "TYPE_TEXT":
-            params = action.get("params", {})
-            return params.get("text", "")
-    return ""
+            text = (action.get("params") or {}).get("text") or ""
+            if text.strip():
+                texts.append(text)
+    return texts
+
+
+def _planned_body(planned_actions: list, client_planned_content: str = None) -> str:
+    """The message/post body the planner drafted, if any.
+
+    Only the plan's own TYPE_TEXT steps count. Older Android builds send the planner's *chat
+    reply* ("On it, opening WhatsApp...") as plannedContent; that text must never be typed, so
+    client content is accepted only when it is one of the plan's TYPE_TEXT texts.
+    """
+    texts = _planned_type_texts(planned_actions)
+    if client_planned_content and client_planned_content in texts:
+        return client_planned_content if len(client_planned_content) >= BODY_MIN_CHARS else ""
+    bodies = [t for t in texts if len(t) >= BODY_MIN_CHARS]
+    return bodies[0] if bodies else ""
 
 
 def _format_planned_actions(planned_actions: list) -> str:
@@ -198,12 +231,27 @@ def _format_planned_actions(planned_actions: list) -> str:
     return "\n".join(lines)
 
 
-def _has_typed_content(action_history: list, prev_action: str) -> bool:
-    """Check if TYPE_TEXT has been successfully executed in the history."""
-    history_text = " ".join(action_history or []).lower()
-    prev_lower = (prev_action or "").lower()
-    combined = history_text + " " + prev_lower
-    return "type_text" in combined and "success" in combined
+def _successful_type_count(action_history: list) -> int:
+    """How many TYPE_TEXT steps actually succeeded (history entries look like
+    'TYPE_TEXT: <description> (Success — ...)')."""
+    return sum(
+        1 for h in (action_history or [])
+        if h.upper().startswith("TYPE_TEXT") and "(success" in h.lower()
+    )
+
+
+def _has_typed_content(action_history: list, planned_actions: list, planned_body: str) -> bool:
+    """Has the message/post BODY been typed yet? (Typing a search term or a name doesn't count.)
+
+    - Plan drafted a body: every planned TYPE_TEXT up to and including the body has succeeded.
+    - No drafted body (e.g. "reply based on his last message"): a TYPE_TEXT beyond the plan's
+      short entries succeeded — that one is the agent-composed message.
+    """
+    typed = _successful_type_count(action_history)
+    planned = _planned_type_texts(planned_actions)
+    if planned_body:
+        return typed >= planned.index(planned_body) + 1
+    return typed >= len(planned) + 1
 
 
 def _is_critical_confirmation_needed(action_type: str, action_params: dict, action_desc: str) -> bool:
@@ -285,12 +333,14 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
     # ── Build planned actions context ──
     planned_actions_text = _format_planned_actions(request.plannedActions or [])
     
-    # ── Extract planned TYPE_TEXT content ──
-    planned_type_text = _extract_planned_type_text(request.plannedActions or [])
-    planned_content = request.plannedContent or planned_type_text or ""
-    
+    # ── Planned message/post body (only ever from the plan's own TYPE_TEXT steps) ──
+    planned_content = _planned_body(request.plannedActions or [], request.plannedContent)
+    goal_lower = (request.goal or "").lower()
+    is_messaging_goal = any(kw in goal_lower for kw in ["reply", "message", "text ", "whatsapp", "telegram", "dm ", "chat with"])
+    must_compose = not planned_content and any(kw in goal_lower for kw in ["reply", "respond", "message", "write", "comment"])
+
     # ── Derive execution state from history ──
-    has_typed = _has_typed_content(request.actionHistory, request.previousAction)
+    has_typed = _has_typed_content(request.actionHistory, request.plannedActions or [], planned_content)
     
     # ── Build the prompt with full context ──
     prompt_parts = [f"GOAL: {request.goal}"]
@@ -298,14 +348,17 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
     prompt_parts.append(f"PLANNED ACTIONS (from planner — follow this sequence):\n{planned_actions_text}")
     
     if planned_content:
-        prompt_parts.append(f"PLANNED CONTENT (use this EXACT text for TYPE_TEXT, do NOT make up your own):\n\"{planned_content}\"")
-    
+        prompt_parts.append(f"PLANNED CONTENT (the message/post body — type this EXACT text into the composer, never into a search field):\n\"{planned_content}\"")
+
     # Inject execution state so the LLM knows what has been done
     state_hints = []
-    if has_typed:
-        state_hints.append("CONTENT HAS BEEN TYPED — next step should be confirmation or final publish")
-    else:
-        state_hints.append("CONTENT HAS NOT BEEN TYPED YET — focus on navigating to composer and typing")
+    if planned_content or must_compose:
+        if has_typed:
+            state_hints.append("THE MESSAGE/POST BODY HAS BEEN TYPED — next step is confirmation, then the final send/publish tap")
+        elif must_compose:
+            state_hints.append("NO REPLY TEXT IS PLANNED — navigate to the right chat/thread, read the latest messages in SNAPSHOT, then compose the reply yourself and TYPE_TEXT it into the message box")
+        else:
+            state_hints.append("THE MESSAGE/POST BODY HAS NOT BEEN TYPED YET — navigate to the composer, then type the PLANNED CONTENT")
     if state_hints:
         prompt_parts.append(f"EXECUTION STATE: {'; '.join(state_hints)}")
     
@@ -325,7 +378,17 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
     ]
 
     try:
-        raw = await llm_service.chat(messages, max_tokens=512, json_mode=True, agent_name="interactive")
+        trace_metadata = {
+            # thread_id groups every step of one automation into a single LangSmith thread
+            "thread_id": request.automationId,
+            "automation_id": request.automationId,
+            "step_id": request.stepId,
+            "step_number": current_step,
+            "snapshot_hash": request.snapshotHash,
+            "package": request.snapshot.packageName,
+        }
+        raw = await llm_service.chat(messages, max_tokens=512, json_mode=True, agent_name="interactive",
+                                     metadata={k: v for k, v in trace_metadata.items() if v is not None})
         cleaned_raw = _clean_json_response(raw)
         
         try:
@@ -373,11 +436,16 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
                 
                 if not already_confirmed:
                     logger.info(f"InteractiveAgent: Final publish action detected after content typed. Requesting confirmation.")
+                    confirm_msg = (
+                        "Message is ready. Review it on screen — confirm to send, or cancel to edit it yourself."
+                        if is_messaging_goal else
+                        "Post content is ready. Would you like to add any images/videos before posting? Confirm to post now, or cancel to add attachments."
+                    )
                     return NextActionResponse(
                         action=ActionStep(
                             step=current_step,
                             type="WAIT_FOR_USER",
-                            params={"message": "Post content is ready. Would you like to add any images/videos before posting? Confirm to post now, or cancel to add attachments."},
+                            params={"message": confirm_msg},
                             description="Confirm before publishing",
                             requiresConfirmation=True
                         ),
@@ -388,10 +456,15 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
                     logger.info(f"InteractiveAgent: User already confirmed. Proceeding with publish action: {action_desc}")
         
         # ── SAFETY: Enforce planned TYPE_TEXT content ──
+        # Only for body text: if the model is typing a long message/post that differs from the
+        # drafted body, it hallucinated its own version. Short entries (search terms, contact
+        # names) are never overridden — overriding those is what pasted the chat reply into
+        # WhatsApp's search box.
         if action_type == "TYPE_TEXT" and planned_content:
             current_text = action_params.get("text", "")
-            # If the LLM hallucinated different text, override with planned content
-            if current_text and current_text != planned_content:
+            planned_short = set(_planned_type_texts(request.plannedActions or [])) - {planned_content}
+            is_body_attempt = len(current_text) >= BODY_MIN_CHARS and current_text not in planned_short
+            if is_body_attempt and current_text != planned_content:
                 # Check if it's substantially different (not just whitespace/formatting)
                 if _texts_are_substantially_different(current_text, planned_content):
                     logger.warning(f"InteractiveAgent: TYPE_TEXT content differs from plan. Overriding with planned content.")
@@ -400,7 +473,6 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
                     action_params["text"] = planned_content
 
         # ── Safety Guard: Prevent Premature Completion for Social Posts / Publishing ──
-        goal_lower = (request.goal or "").lower()
         prev_act = (request.previousAction or "").lower()
         is_posting_goal = any(kw in goal_lower for kw in ["post", "publish", "share", "tweet", "linkedin"])
 
@@ -428,11 +500,12 @@ async def get_next_action(request: NextActionRequest, step_number: int) -> NextA
                     action_params = {"durationMs": 2000}
                     action_desc = "Wait for post compose screen to load"
         
-        # ── Safety Loop Prevention: Check if previous action succeeded for a messaging reply goal ──
-        if "success" in prev_act and ("type_text" in prev_act or "send" in prev_act):
-            if any(kw in goal_lower for kw in ["reply", "send a reply", "message dad", "text", "reply hi"]):
-                logger.info("InteractiveAgent: Messaging reply already executed in previous step. Auto-completing task.")
-                is_done = True
+        # ── Messaging: the task is complete once the SEND tap succeeded ──
+        # (Previously ANY successful TYPE_TEXT ended a "reply" task — e.g. typing a name into
+        # the search box — so the reply was never written.)
+        if is_messaging_goal and prev_act.startswith("tap_element") and "send" in prev_act and "(success" in prev_act:
+            logger.info("InteractiveAgent: Send tap succeeded for a messaging goal. Auto-completing task.")
+            is_done = True
 
         # Goal Verification for Search Tasks:
         if "search" in goal_lower:

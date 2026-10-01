@@ -69,6 +69,18 @@ class LLMAttemptError(Exception):
         self.provider_wide = provider_wide
 
 
+_openrouter_client: Optional[httpx.AsyncClient] = None
+
+
+def get_openrouter_client() -> httpx.AsyncClient:
+    """Shared client — creating an AsyncClient (TLS setup) costs ~0.1-0.7s, which used to be
+    paid on every LLM call even when OpenRouter was never reached."""
+    global _openrouter_client
+    if _openrouter_client is None:
+        _openrouter_client = httpx.AsyncClient()
+    return _openrouter_client
+
+
 def get_groq_client() -> AsyncGroq:
     global _groq_client
     if _groq_client is None:
@@ -242,13 +254,14 @@ async def chat(
     temperature: float = None,
     max_tokens: int = None,
     json_mode: bool = False,
-    agent_name: str = "unknown"
+    agent_name: str = "unknown",
+    metadata: Optional[Dict] = None
 ) -> str:
     """Send messages to LLM and return response text.
 
     Walks Groq models, then OpenRouter free models, skipping any model that is cooling down
     after a recent failure. Every attempt — success or failure — is traced to LangSmith as a
-    child of one `llm_call/<agent>` run.
+    child of one `llm_call/<agent>` run. `metadata` is attached to that run (e.g. automation ids).
     """
     temp = temperature if temperature is not None else settings.llm_temperature
     max_t = max_tokens or settings.llm_max_tokens
@@ -272,51 +285,50 @@ async def chat(
         force_try = min(chain, key=lambda pm: _cooldown_remaining(*pm))
         chain = [force_try]
 
-    async with httpx.AsyncClient() as or_client:
-        for provider, model in chain:
-            label = f"{provider}/{model}"
-            remaining = _cooldown_remaining(provider, model)
-            if remaining > 0 and (provider, model) != force_try:
-                skipped.append(f"{label} (cooldown {remaining:.0f}s)")
-                continue
+    for provider, model in chain:
+        label = f"{provider}/{model}"
+        remaining = _cooldown_remaining(provider, model)
+        if remaining > 0 and (provider, model) != force_try:
+            skipped.append(f"{label} (cooldown {remaining:.0f}s)")
+            continue
 
-            budget_left = TOTAL_BUDGET_S - (time.time() - started)
-            if budget_left <= 1:
-                errors.append(f"time budget of {TOTAL_BUDGET_S:.0f}s exhausted")
+        budget_left = TOTAL_BUDGET_S - (time.time() - started)
+        if budget_left <= 1:
+            errors.append(f"time budget of {TOTAL_BUDGET_S:.0f}s exhausted")
+            break
+        if provider == "openrouter":
+            if openrouter_attempts >= MAX_OPENROUTER_ATTEMPTS:
+                errors.append(f"OpenRouter attempt cap ({MAX_OPENROUTER_ATTEMPTS}) reached")
                 break
-            if provider == "openrouter":
-                if openrouter_attempts >= MAX_OPENROUTER_ATTEMPTS:
-                    errors.append(f"OpenRouter attempt cap ({MAX_OPENROUTER_ATTEMPTS}) reached")
-                    break
-                openrouter_attempts += 1
+            openrouter_attempts += 1
 
-            timeout_s = min(REQUEST_TIMEOUT_S, budget_left)
-            attempt = tracing_service.start_attempt(trace, provider, model, temperature=temp, max_tokens=max_t)
-            attempt_start = time.time()
-            try:
-                if provider == "groq":
-                    content, usage = await _call_groq(model, messages, temp, max_t, json_mode, timeout_s)
-                else:
-                    content, usage = await _call_openrouter(or_client, model, messages, temp, max_t, json_mode, timeout_s)
-            except LLMAttemptError as e:
-                logger.warning(f"LLM [{label}/{agent_name}] failed: {e}")
-                _set_cooldown(provider, model, e)
-                tracing_service.end_attempt(attempt, error=str(e), cooldown_s=e.cooldown_s)
-                errors.append(str(e))
-                continue
-            except Exception as e:  # unexpected bug — record it and keep falling back
-                logger.exception(f"LLM [{label}/{agent_name}] unexpected error")
-                tracing_service.end_attempt(attempt, error=f"{type(e).__name__}: {e}")
-                errors.append(f"{label}: {type(e).__name__}: {e}")
-                continue
+        timeout_s = min(REQUEST_TIMEOUT_S, budget_left)
+        attempt = tracing_service.start_attempt(trace, provider, model, temperature=temp, max_tokens=max_t)
+        attempt_start = time.time()
+        try:
+            if provider == "groq":
+                content, usage = await _call_groq(model, messages, temp, max_t, json_mode, timeout_s)
+            else:
+                content, usage = await _call_openrouter(get_openrouter_client(), model, messages, temp, max_t, json_mode, timeout_s)
+        except LLMAttemptError as e:
+            logger.warning(f"LLM [{label}/{agent_name}] failed: {e}")
+            _set_cooldown(provider, model, e)
+            tracing_service.end_attempt(attempt, error=str(e), cooldown_s=e.cooldown_s)
+            errors.append(str(e))
+            continue
+        except Exception as e:  # unexpected bug — record it and keep falling back
+            logger.exception(f"LLM [{label}/{agent_name}] unexpected error")
+            tracing_service.end_attempt(attempt, error=f"{type(e).__name__}: {e}")
+            errors.append(f"{label}: {type(e).__name__}: {e}")
+            continue
 
-            latency_ms = (time.time() - attempt_start) * 1000
-            tracing_service.end_attempt(attempt, output=content, usage=usage, latency_ms=latency_ms)
-            tracing_service.end_llm_trace(trace, output=content, provider=provider, model=model,
-                                          usage=usage, failed_attempts=len(errors), skipped=skipped)
-            logger.info(f"LLM [{label}/{agent_name}]: Success! {usage.get('total_tokens', '?')} tokens, "
-                        f"{latency_ms:.0f}ms ({len(errors)} failed, {len(skipped)} skipped before)")
-            return content
+        latency_ms = (time.time() - attempt_start) * 1000
+        tracing_service.end_attempt(attempt, output=content, usage=usage, latency_ms=latency_ms)
+        tracing_service.end_llm_trace(trace, output=content, provider=provider, model=model,
+                                      usage=usage, failed_attempts=len(errors), skipped=skipped)
+        logger.info(f"LLM [{label}/{agent_name}]: Success! {usage.get('total_tokens', '?')} tokens, "
+                    f"{latency_ms:.0f}ms ({len(errors)} failed, {len(skipped)} skipped before)")
+        return content
 
     summary = "; ".join(errors[-5:]) or "no models attempted"
     tracing_service.end_llm_trace(trace, error=summary, failed_attempts=len(errors), skipped=skipped)

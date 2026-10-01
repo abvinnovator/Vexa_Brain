@@ -72,7 +72,7 @@ def _get_client():
     return _client
 
 
-def start_llm_trace(agent_name: str, messages, json_mode: bool = False):
+def start_llm_trace(agent_name: str, messages, json_mode: bool = False, metadata: Optional[Dict] = None):
     """Open the parent run for one llm_service.chat() call. Returns None if tracing is off.
 
     Runs are posted with a start time and later patched with an end time — previously runs
@@ -87,7 +87,7 @@ def start_llm_trace(agent_name: str, messages, json_mode: bool = False):
             run_type="chain",
             inputs={"messages": messages, "json_mode": json_mode},
             project_name=settings.langsmith_project,
-            extra={"metadata": {"agent": agent_name}},
+            extra={"metadata": {"agent": agent_name, **(metadata or {})}},
             tags=[f"agent:{agent_name}"],
             ls_client=_get_client(),
         )
