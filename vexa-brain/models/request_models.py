@@ -54,6 +54,7 @@ class VexaMemory(BaseModel):
 class ClickableElement(BaseModel):
     text: str
     resourceId: Optional[str] = None
+    selected: Optional[bool] = None     # true when this tab/chip/toggle is the active one
 
 class EditableField(BaseModel):
     hint: str
@@ -63,6 +64,8 @@ class ScreenSnapshot(BaseModel):
     screenTexts: List[str] = []
     clickableElements: List[ClickableElement] = []
     editableFields: List[EditableField] = []
+    packageName: Optional[str] = None   # foreground app, e.g. com.linkedin.android
+    activity: Optional[str] = None      # last window/activity class reported by Android
 
 class RecoveryRequest(BaseModel):
     userId: str
@@ -89,12 +92,22 @@ class NextActionRequest(BaseModel):
     stepNumber: Optional[int] = 1                            # Current execution step count
     maxSteps: Optional[int] = 15                             # Safety limit — abort after this many steps
     actionHistory: Optional[List[str]] = None                # Sliding window of recent action history and outcomes
+    # Correlation — lets Android logs, server logs and LangSmith traces be lined up per step
+    automationId: Optional[str] = None                       # one id per automation run
+    stepId: Optional[str] = None                             # unique per request; echoed back in the response
+    snapshotHash: Optional[str] = None                       # structural hash of the snapshot this decision is based on
+    snapshotTakenAtMs: Optional[int] = None                  # device clock, epoch ms
 
 class NextActionResponse(BaseModel):
     action: Optional[ActionStep] = None
     isDone: bool = False
     requiresUserConfirmation: bool = False
     error: Optional[str] = None
+    # Echoed correlation fields — Android drops any response whose stepId isn't the one it is waiting for
+    automationId: Optional[str] = None
+    stepId: Optional[str] = None
+    snapshotHash: Optional[str] = None
+    serverMs: Optional[int] = None                           # time spent server-side (mostly LLM)
 
 
 # ── Saved Agent Models ──

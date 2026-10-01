@@ -34,3 +34,4 @@ Thumbs.db
 
 # Don't ignore knowledge base — it's part of the brain!
 # !knowledge/
+.claude/settings.local.json

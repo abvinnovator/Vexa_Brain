@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     groq_api_key: str
     mongodb_uri: str = "mongodb://localhost:27017/vexa"
     mongodb_db_name: str = "vexa"
-    llm_model: str = "groq/compound-mini"
+    llm_model: str = "qwen/qwen3.8-27b"
     llm_temperature: float = 0.3
     llm_max_tokens: int = 4096
     host: str = "0.0.0.0"
