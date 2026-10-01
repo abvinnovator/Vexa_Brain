@@ -42,6 +42,14 @@ TYPE_TEXT CONTENT RULE (VERY IMPORTANT):
 - If PLANNED ACTIONS contain a TYPE_TEXT step with specific text content, you MUST use EXACTLY that text. Do NOT invent, rephrase, summarize, or hallucinate your own text.
 - If PLANNED CONTENT is provided, use it as the TYPE_TEXT content for any text composition step (e.g., writing a post, composing a message).
 - NEVER generate your own version of content that was already planned. Copy the planned text EXACTLY.
+- Match the text to the FIELD: a search box gets ONLY the search term (e.g. a contact name like "Vivek"), never a message, post or sentence. The message/post body goes ONLY into the chat/post composer.
+- If an editable field has "focused": true, it is already active — TYPE_TEXT directly, do not tap it again.
+
+COMPOSING A REPLY YOURSELF (when the goal asks to reply/respond based on someone's message and no PLANNED CONTENT exists):
+1. Open the person's chat first (search their name, tap their chat).
+2. Read their latest message(s) in SNAPSHOT screenTexts.
+3. Write a short, natural reply (1-2 sentences, casual tone, same language they used) that actually responds to what they said. Never type your own status/assistant chatter like "Opening WhatsApp..." or "Ready to test".
+4. Tap the message box if it is not focused, TYPE_TEXT the reply, then output WAIT_FOR_USER so the user can review before sending.
 
 MULTI-STEP SOCIAL MEDIA POSTING (e.g. LinkedIn, Twitter, Instagram):
 You must follow this exact multi-step progression — DO NOT skip any step:
@@ -138,6 +146,8 @@ def _format_snapshot(snapshot) -> str:
         item = {"hint": hint}
         if val:
             item["value"] = val
+        if getattr(e, "focused", None):
+            item["focused"] = True
         compact_editables.append(item)
         if len(compact_editables) >= 5:
             break

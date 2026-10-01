@@ -59,6 +59,7 @@ class ClickableElement(BaseModel):
 class EditableField(BaseModel):
     hint: str
     value: Optional[str] = None
+    focused: Optional[bool] = None      # true when this field already has input focus (ready to type)
 
 class ScreenSnapshot(BaseModel):
     screenTexts: List[str] = []
