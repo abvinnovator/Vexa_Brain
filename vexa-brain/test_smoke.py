@@ -4,12 +4,10 @@ sys.path.insert(0, ".")
 
 # Test all imports
 from services import knowledge_service, learning_service, personality_service
-from agents import memory_agent, planner_agent, interactive_agent, recovery_agent
-from routers import chat, action, knowledge
+from agents import memory_agent, planner_agent
+from routers import chat, knowledge
 from models.request_models import (
-    ChatRequest, ChatResponse, ActionPlan, ActionStep,
-    VexaMemory, NextActionRequest, NextActionResponse,
-    RecoveryRequest, RecoveryResponse, ScreenSnapshot
+    ChatRequest, ChatResponse, ActionPlan, ActionStep, VexaMemory
 )
 print("All imports: OK")
 

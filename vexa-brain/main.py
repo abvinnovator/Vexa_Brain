@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from config import settings
-from services import mongodb_service, knowledge_service, tracing_service, neo4j_service
-from routers import chat, action, knowledge, agent, email
+from services import mongodb_service, knowledge_service, tracing_service, neo4j_service, org_service
+from routers import chat, knowledge, email, org
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -16,6 +16,10 @@ import agents  # noqa: ensures submodule init
 async def lifespan(app: FastAPI):
     # Startup
     await mongodb_service.connect(settings.mongodb_uri, settings.mongodb_db_name)
+    try:
+        await org_service.ensure_indexes()
+    except Exception as e:
+        logger.error(f"Org indexes not created: {e}")
 
     # Initialize OKF knowledge service with Neo4j Graph DB
     await knowledge_service.init_async()
@@ -35,7 +39,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Vexa Brain",
-    description="AI engine for personal phone automation with self-learning OKF knowledge base. The phone acts — Vexa thinks.",
+    description="Personal AI brain with a self-learning OKF knowledge base. Vexa does the thinking; you stay in control.",
     version="3.0.0",
     lifespan=lifespan
 )
@@ -50,10 +54,9 @@ app.add_middleware(
 
 # Routes
 app.include_router(chat.router, prefix="/api")
-app.include_router(action.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api")
-app.include_router(agent.router, prefix="/api")
 app.include_router(email.router, prefix="/api")
+app.include_router(org.router, prefix="/api")
 
 
 @app.get("/")
@@ -65,9 +68,8 @@ async def root():
         "architecture": "OKF (Open Knowledge Format)",
         "features": [
             "Self-learning knowledge base",
+            "Vexa Org (life areas, tasks, reminders, follow-ups)",
             "Personalized response matching",
-            "Phone automation (action steps)",
-            "Saved agents (replay without AI)",
             "LLM observability (LangSmith)",
             "Email send (Gmail SMTP)",
             "Email inbox (Gmail IMAP)"
