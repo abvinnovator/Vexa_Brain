@@ -5,7 +5,7 @@ v3.0: Enhanced retrieval with LLM-powered semantic search.
 Always includes identity baseline for personal context.
 """
 
-from services import knowledge_service, personality_service
+from services import knowledge_service, personal_context, personality_service
 from models.request_models import VexaMemory
 from datetime import datetime, timedelta, timezone
 import logging
@@ -45,9 +45,12 @@ async def enrich(memory: VexaMemory) -> VexaMemory:
 
     # ── 2. OKF Knowledge Retrieval (Enhanced v3.0) ──
     try:
+        # One routing call: which life areas this touches + search keywords
+        r = await personal_context.route(memory.raw_prompt)
         memory.knowledge_context = await knowledge_service.query_relevant(
-            memory.raw_prompt, uid
+            memory.raw_prompt, uid, expanded_keywords=r.keywords, priority_areas=r.areas
         )
+        memory.personal_context = await personal_context.build(uid, memory.raw_prompt, r, local)
         memory.communication_profile = await knowledge_service.get_communication_profile()
 
         context_len = len(memory.knowledge_context)

@@ -1,4 +1,7 @@
-from fastapi import FastAPI
+import hmac
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from config import settings
@@ -51,6 +54,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def require_app_key(request: Request, call_next):
+    """Reject API calls without the app key (only once VXA_APP_KEY is configured)."""
+    path = request.url.path
+    if settings.vxa_app_key and path.startswith("/api/") and path != "/api/health":
+        sent = request.headers.get("x-vxa-key", "")
+        if not hmac.compare_digest(sent, settings.vxa_app_key):
+            return JSONResponse(status_code=401, content={"detail": "missing or invalid app key"})
+    return await call_next(request)
+
 
 # Routes
 app.include_router(chat.router, prefix="/api")

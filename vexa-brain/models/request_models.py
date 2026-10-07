@@ -42,6 +42,7 @@ class VexaMemory(BaseModel):
     conversation_history: List[Dict[str, str]] = []
     behavioral_context: str = ""        # built by MemoryAgent
     knowledge_context: str = ""         # OKF-retrieved relevant knowledge
+    personal_context: str = ""          # facts + Org items this question touches (area-first)
     communication_profile: str = ""     # user's speaking style/tone
     personality_prompt: str = ""        # dynamic personality instructions
     intent: str = "CONVERSATION"        # detected by PlannerAgent

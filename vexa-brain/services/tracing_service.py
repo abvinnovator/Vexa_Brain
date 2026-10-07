@@ -72,7 +72,11 @@ def _get_client():
     return _client
 
 
-def start_llm_trace(agent_name: str, messages, json_mode: bool = False, metadata: Optional[Dict] = None):
+REDACTED = "[redacted — private content is not stored in traces]"
+
+
+def start_llm_trace(agent_name: str, messages, json_mode: bool = False, metadata: Optional[Dict] = None,
+                    redact: bool = False):
     """Open the parent run for one llm_service.chat() call. Returns None if tracing is off.
 
     Runs are posted with a start time and later patched with an end time — previously runs
@@ -85,7 +89,8 @@ def start_llm_trace(agent_name: str, messages, json_mode: bool = False, metadata
         run = RunTree(
             name=f"llm_call/{agent_name}",
             run_type="chain",
-            inputs={"messages": messages, "json_mode": json_mode},
+            # redact=True: other people's messages (bubble screen text) must never land in a trace
+            inputs={"messages": REDACTED if redact else messages, "json_mode": json_mode},
             project_name=settings.langsmith_project,
             extra={"metadata": {"agent": agent_name, **(metadata or {})}},
             tags=[f"agent:{agent_name}"],
@@ -139,7 +144,8 @@ def end_attempt(attempt, output: Optional[str] = None, error: Optional[str] = No
             metadata["cooldown_s"] = round(cooldown_s)
         outputs = None
         if output is not None:
-            outputs = {"response": output, "usage_metadata": _usage_metadata(usage)}
+            redacted = attempt.inputs.get("messages") == REDACTED
+            outputs = {"response": REDACTED if redacted else output, "usage_metadata": _usage_metadata(usage)}
         attempt.end(outputs=outputs, error=error, metadata=metadata or None)
         attempt.patch()
     except Exception as e:
@@ -156,7 +162,9 @@ def end_llm_trace(trace, output: Optional[str] = None, error: Optional[str] = No
         metadata: Dict[str, Any] = {"failed_attempts": failed_attempts, "skipped_models": skipped or []}
         if provider:
             metadata.update({"provider": provider, "model": model})
-        outputs = {"response": output, "usage_metadata": _usage_metadata(usage)} if output is not None else None
+        redacted = trace.inputs.get("messages") == REDACTED
+        outputs = ({"response": REDACTED if redacted else output, "usage_metadata": _usage_metadata(usage)}
+                   if output is not None else None)
         trace.end(outputs=outputs, error=error, metadata=metadata)
         trace.patch()
     except Exception as e:

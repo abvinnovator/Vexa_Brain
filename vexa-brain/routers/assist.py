@@ -111,7 +111,8 @@ async def assist_reply(request: AssistReplyRequest):
     raw = await llm_service.chat([{"role": "user", "content": prompt}], temperature=0.6,
                                  max_tokens=500, json_mode=True, agent_name="assist_reply",
                                  metadata={"app": request.app or "unknown"},
-                                 prefer_models=["openai/gpt-oss-120b"])
+                                 prefer_models=["openai/gpt-oss-120b"],
+                                 redact_trace=True)   # screen text = other people's messages: never traced
     data = json.loads(raw)
     drafts = [str(d).strip().strip('"') for d in data.get("drafts", []) if str(d).strip()]
     if not drafts:

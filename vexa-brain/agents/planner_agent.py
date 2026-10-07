@@ -49,6 +49,14 @@ INTENTS:
   If the date or time is genuinely ambiguous, ask instead of adding (intent CONVERSATION, no action).
   Only add items mentioned in the CURRENT message — items from earlier messages in the conversation were already added.
 
+PERSONAL BRIDGE (this is what makes you different from ChatGPT):
+- Before answering, check PERSONAL CONTEXT. If something there genuinely connects to the question, add ONE short,
+  natural line linking it — e.g. he asks banana calories and you know he started going to the gym:
+  "~105 kcal for a medium banana — a solid pre-workout snack for your gym sessions."
+- The accurate answer always comes first and stays complete; the personal line is a bonus, not a replacement.
+- Never force a link that isn't there, never invent a memory, never list everything you know, no "As you told me on…".
+  If nothing relates, just answer well.
+
 HONESTY RULE: Never say you scheduled, saved, noted, reminded or updated anything unless the matching action is in "actions".
 Without an action nothing is stored — saying "I've noted it" is a lie the user will rely on.
 
@@ -85,6 +93,10 @@ async def plan(memory: VexaMemory) -> VexaMemory:
 
     if memory.behavioral_context:
         user_content_parts.append(f"BEHAVIORAL CONTEXT:\n{memory.behavioral_context}")
+
+    if memory.personal_context:
+        user_content_parts.append(
+            "PERSONAL CONTEXT (what's going on in his life that this message touches):\n" + memory.personal_context)
 
     if memory.knowledge_context:
         user_content_parts.append(f"USER KNOWLEDGE (from brain memory):\n{memory.knowledge_context}")

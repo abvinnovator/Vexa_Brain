@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     neo4j_password: str = ""
     neo4j_database: str = ""
 
+    # App key: when set, every /api route except /api/health requires the header X-VXA-Key.
+    # Without it, anyone who finds the server URL can read the user's memory and Gmail.
+    vxa_app_key: str = ""
+
     # LangSmith tracing config
     langsmith_api_key: str = ""
     langsmith_project: str = "XA"

@@ -31,7 +31,6 @@ GROQ_MODEL_PARAMS = {
 # Free tier is capped (50 requests/day, ~20/min), so failed attempts are expensive — see cooldowns.
 # Slugs verified against https://openrouter.ai/api/v1/models on 2026-10-01.
 OPENROUTER_FREE_MODELS = [
-    "qwen/qwen3.8-27b:free",
     "poolside/laguna-s-2.1:free",
     "google/gemma-4-31b-it:free",
     "google/gemma-4-26b-a4b-it:free",
@@ -256,7 +255,8 @@ async def chat(
     json_mode: bool = False,
     agent_name: str = "unknown",
     metadata: Optional[Dict] = None,
-    prefer_models: Optional[List[str]] = None
+    prefer_models: Optional[List[str]] = None,
+    redact_trace: bool = False
 ) -> str:
     """Send messages to LLM and return response text.
 
@@ -272,7 +272,8 @@ async def chat(
     if json_mode and not any("json" in str(m.get("content", "")).lower() for m in messages):
         messages = [{"role": "system", "content": "Respond with a valid JSON object only."}] + list(messages)
 
-    trace =tracing_service.start_llm_trace(agent_name, messages, json_mode=json_mode)
+    trace = tracing_service.start_llm_trace(agent_name, messages, json_mode=json_mode, metadata=metadata,
+                                           redact=redact_trace)
     started = time.time()
     errors: List[str] = []
     skipped: List[str] = []

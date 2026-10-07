@@ -277,7 +277,9 @@ async def _semantic_expand_query(user_prompt: str) -> List[str]:
         return []
 
 
-async def query_relevant(user_prompt: str, user_id: str = "") -> str:
+async def query_relevant(user_prompt: str, user_id: str = "",
+                         expanded_keywords: Optional[List[str]] = None,
+                         priority_areas: Optional[List[str]] = None) -> str:
     """
     Enhanced Section-level OKF Retrieval Engine v3.0:
     1. Extract keywords from user prompt
@@ -295,14 +297,16 @@ async def query_relevant(user_prompt: str, user_id: str = "") -> str:
     # ── 1. Extract keywords from prompt ──
     base_keywords = set(_extract_keywords(user_prompt))
 
-    # ── 2. Semantic LLM expansion ──
-    expanded_keywords = await _semantic_expand_query(user_prompt)
+    # ── 2. Semantic LLM expansion (skipped when the caller already routed the query) ──
+    if expanded_keywords is None:
+        expanded_keywords = await _semantic_expand_query(user_prompt)
     all_keywords = base_keywords | set(expanded_keywords)
 
     logger.info(f"Retrieval keywords: base={base_keywords}, expanded={set(expanded_keywords) - base_keywords}")
 
     # ── 3. Score sections with improved weights ──
     section_scores: List[Tuple[dict, float]] = []
+    from services.org_knowledge import NODE_AREAS as node_areas   # local import: avoids a cycle
 
     for sec in _section_cache:
         score = 0.0
@@ -342,11 +346,15 @@ async def query_relevant(user_prompt: str, user_id: str = "") -> str:
             if count > 1:
                 score += min(count * 0.5, 2.0)  # Cap at 2.0 extra
 
+        # (f) Area-first: sections from the life areas this question belongs to rank higher
+        if score > 0.0 and priority_areas and node_areas.get(sec["file_rel_path"]) in priority_areas:
+            score *= 1.5
+
         if score > 0.0:
             section_scores.append((sec, score))
 
     # ── 4. Neo4j full-text fallback if scores are weak ──
-    top_score = section_scores[0][1] if section_scores else 0.0
+    top_score = max((s for _, s in section_scores), default=0.0)
     if top_score < 2.0 and neo4j_service.is_connected():
         try:
             search_terms = list(base_keywords)[:5]
