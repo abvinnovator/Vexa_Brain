@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
@@ -19,7 +20,7 @@ from typing import Dict, List, Optional
 from models.org_models import (
     ORG_AREAS, ORG_TYPES, OrgArea, OrgCaptureResponse, OrgItem, OrgItemUpsert, OrgOverview,
 )
-from services import knowledge_service, learning_service, llm_service, mongodb_service
+from services import knowledge_service, learning_service, llm_service, mongodb_service, org_knowledge
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,13 @@ Only say "overdue" when the label says OVERDUE.
 Open items by area:
 {items}
 
-Respond ONLY with JSON mapping each area key to its line: {{"office": "...", "personal": "...", ...}}
+What you already know about each area:
+{knowledge}
+
+When an area has NO open items, don't say "quiet" — summarise where they stand from what you know,
+e.g. office: "Program Analyst Trainee at Cognizant · nothing due". Only say "Nothing here yet" when you know nothing.
+
+Respond ONLY with JSON mapping EVERY area key to its line: {{"office": "...", "personal": "...", "learning": "...", "people": "...", "health": "..."}}
 """
 
 
@@ -132,7 +139,51 @@ def _learn(text: str, filed: str):
 
 # ── Capture ──────────────────────────────────────────────────────────
 
-async def capture(user_id: str, text: str, now: Optional[str], area: Optional[str] = None) -> OrgCaptureResponse:
+async def capture(user_id: str, text: str, now: Optional[str], area: Optional[str] = None,
+                  source: str = "capture", learn: bool = True) -> OrgCaptureResponse:
+    cleaned, data = await _parse_with_reply(text, now, area)
+    if not cleaned:
+        cleaned = [{"area": area if area in ORG_AREAS else "personal", "type": "note", "title": text.strip()[:200],
+                    "detail": None, "dueAt": None, "person": None}]
+
+    stamp = _now_iso()
+    items, new_docs = [], []
+    for c in cleaned:
+        # Same title at the same time already open → reuse it instead of adding a duplicate
+        existing = await _find_duplicate(user_id, c)
+        if existing:
+            items.append(existing)
+            continue
+        item = OrgItem(id=str(uuid.uuid4()), userId=user_id, status="open", source=source,
+                       createdAt=stamp, updatedAt=stamp, **c)
+        items.append(item)
+        new_docs.append(item.model_dump())
+    if new_docs:
+        await _col("org_items").insert_many(new_docs)
+
+    reply = (data.get("reply") or "").strip() or f"Filed under {ORG_AREAS[items[0].area]}."
+    if learn:
+        _learn(text, reply)
+    logger.info(f"Org capture: {len(items)} item(s) for {user_id}: {[i.title for i in items]}")
+    return OrgCaptureResponse(items=items, reply=reply)
+
+
+def _norm(text: Optional[str]) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+async def _find_duplicate(user_id: str, item: Dict) -> Optional[OrgItem]:
+    due = _parse_dt(item.get("dueAt"))
+    async for d in _col("org_items").find({"userId": user_id, "status": "open"}, {"_id": 0}):
+        same_time = (due is None and not d.get("dueAt")) or (
+            due is not None and (other := _parse_dt(d.get("dueAt"))) is not None and abs((other - due).total_seconds()) < 60)
+        if same_time and _norm(d.get("title")) == _norm(item.get("title")):
+            return OrgItem(**d)
+    return None
+
+
+async def _parse_with_reply(text: str, now: Optional[str], area: Optional[str] = None):
+    """LLM: free text → cleaned item dicts (+ the model's one-line reply)."""
     user_now = _user_now(now)
     prompt = CAPTURE_PROMPT.format(
         now=user_now.isoformat(timespec="minutes") + f" ({user_now.strftime('%A')})",
@@ -141,7 +192,6 @@ async def capture(user_id: str, text: str, now: Optional[str], area: Optional[st
     )
     if area in ORG_AREAS:
         prompt += f'\nThe user added this inside the "{area}" area — use area "{area}" for every item.\n'
-
     raw = await llm_service.chat([{"role": "user", "content": prompt}], temperature=0.1,
                                  max_tokens=600, json_mode=True, agent_name="org_capture")
     data = json.loads(raw)
@@ -149,19 +199,7 @@ async def capture(user_id: str, text: str, now: Optional[str], area: Optional[st
     if area in ORG_AREAS:
         for c in cleaned:
             c["area"] = area
-    if not cleaned:
-        cleaned = [{"area": area if area in ORG_AREAS else "personal", "type": "note", "title": text.strip()[:200],
-                    "detail": None, "dueAt": None, "person": None}]
-
-    stamp = _now_iso()
-    items = [OrgItem(id=str(uuid.uuid4()), userId=user_id, status="open", source="capture",
-                     createdAt=stamp, updatedAt=stamp, **c) for c in cleaned]
-    await _col("org_items").insert_many([i.model_dump() for i in items])
-
-    reply = (data.get("reply") or "").strip() or f"Filed under {ORG_AREAS[items[0].area]}."
-    _learn(text, reply)
-    logger.info(f"Org capture: {len(items)} item(s) for {user_id}: {[i.title for i in items]}")
-    return OrgCaptureResponse(items=items, reply=reply)
+    return cleaned, data
 
 
 # ── CRUD ─────────────────────────────────────────────────────────────
@@ -179,6 +217,33 @@ async def upsert(item_id: str, body: OrgItemUpsert) -> OrgItem:
         when = f" due {body.dueAt}" if body.dueAt else ""
         _learn(f"{body.title}. {body.detail or ''}".strip(), f"Added to {ORG_AREAS[item.area]} as a {item.type}{when}.")
     return item
+
+
+async def update_matching(user_id: str, match: str, text: str, now: Optional[str]) -> Optional[OrgItem]:
+    """Find the open item `match` refers to and apply the change in `text` (new time/title).
+    Used by chat for "my trainer meet moved to 1:15 AM". Returns the updated item or None."""
+    words = {w for w in re.findall(r"[a-z0-9]+", match.lower()) if len(w) > 2}
+    if not words:
+        return None
+    docs = await _col("org_items").find({"userId": user_id, "status": "open"}, {"_id": 0}).to_list(length=500)
+
+    def score(d):
+        hay = " ".join(str(d.get(k) or "") for k in ("title", "detail", "person")).lower()
+        return sum(1 for w in words if w in hay)
+
+    # Best keyword match; ties go to the most recently touched item
+    best = max(docs, key=lambda d: (score(d), d.get("updatedAt", "")), default=None)
+    if not best or score(best) == 0:
+        return None
+
+    parsed, _ = await _parse_with_reply(text, now, area=best["area"])
+    change = parsed[0] if parsed else {}
+    fields = {k: v for k, v in change.items() if k in ("title", "dueAt", "detail", "person") and v}
+    fields["updatedAt"] = _now_iso()
+    await _col("org_items").update_one({"id": best["id"]}, {"$set": fields})
+    best.update(fields)
+    logger.info(f"Org update: '{best['title']}' -> {fields}")
+    return OrgItem(**best)
 
 
 async def delete(item_id: str, user_id: str) -> bool:
@@ -199,7 +264,12 @@ async def overview(user_id: str, now: Optional[str]) -> OrgOverview:
     open_items = [i for i in items if i.status == "open"]
 
     end_of_today = user_now.replace(hour=23, minute=59, second=59)
-    situations = await _situations(user_id, open_items, user_now)
+    try:
+        knowledge = await org_knowledge.facts()
+    except Exception as e:
+        logger.warning(f"Org knowledge unavailable: {e}")
+        knowledge = []
+    situations = await _situations(user_id, open_items, user_now, org_knowledge.top_facts_by_area(knowledge))
 
     areas = []
     for key, label in ORG_AREAS.items():
@@ -218,7 +288,7 @@ async def overview(user_id: str, now: Optional[str]) -> OrgOverview:
     nxt = (upcoming or timed or open_items or [None])[0]
 
     items.sort(key=lambda i: (i.status != "open", _parse_dt(i.dueAt) or datetime.max.replace(tzinfo=timezone.utc)))
-    return OrgOverview(areas=areas, items=items, next=nxt)
+    return OrgOverview(areas=areas, items=items, next=nxt, knowledge=knowledge)
 
 
 def _when(due: Optional[datetime], user_now: datetime) -> str:
@@ -239,25 +309,29 @@ def _when(due: Optional[datetime], user_now: datetime) -> str:
     return f"{local.strftime('%d %b')} (in {days} days)"
 
 
-async def _situations(user_id: str, open_items: List[OrgItem], user_now: datetime) -> Dict[str, str]:
+async def _situations(user_id: str, open_items: List[OrgItem], user_now: datetime,
+                      known: Optional[Dict[str, List[str]]] = None) -> Dict[str, str]:
     """One line per area, regenerated only when the open items change (one LLM call for all areas)."""
     by_area: Dict[str, List[str]] = {k: [] for k in ORG_AREAS}
     for i in open_items:
         due = f" ({_when(_parse_dt(i.dueAt), user_now)})" if i.dueAt else ""
         by_area[i.area].append(f"{i.type}: {i.title}{due}")
-    digest_src = json.dumps(by_area, sort_keys=True) + user_now.strftime("%Y-%m-%d")
+    known = known or {}
+    digest_src = json.dumps([by_area, known], sort_keys=True) + user_now.strftime("%Y-%m-%d")
     digest = hashlib.sha1(digest_src.encode()).hexdigest()
 
     cached = await _col("org_situations").find_one({"userId": user_id}, {"_id": 0})
     if cached and cached.get("hash") == digest:
         return cached.get("situations", {})
-    if not open_items:
+    if not open_items and not any(known.values()):
         return {}
 
     listing = "\n".join(f"{k}: " + ("; ".join(v) if v else "(nothing)") for k, v in by_area.items())
     try:
         raw = await llm_service.chat(
-            [{"role": "user", "content": SITUATION_PROMPT.format(now=user_now.strftime("%A %d %b, %I:%M %p"), items=listing)}],
+            [{"role": "user", "content": SITUATION_PROMPT.format(
+                now=user_now.strftime("%A %d %b, %I:%M %p"), items=listing,
+                knowledge="\n".join(f"{k}: " + "; ".join(v) for k, v in known.items() if v) or "(nothing)")}],
             temperature=0.3, max_tokens=300, json_mode=True, agent_name="org_situation",
         )
         situations = {k: str(v)[:120] for k, v in json.loads(raw).items() if k in ORG_AREAS}

@@ -70,7 +70,22 @@ class OrgArea(BaseModel):
     needsAttention: bool               # something due today or overdue → bubble pulses
 
 
+class OrgFact(BaseModel):
+    """Something VXA knows about the user (from the knowledge base), shown in Org."""
+    id: str
+    area: str                          # an ORG_AREAS key, or "profile" for the YOU centre
+    text: str
+    source: str                        # knowledge node it came from, e.g. "memory/career_events.md"
+
+
 class OrgOverview(BaseModel):
     areas: List[OrgArea]
     items: List[OrgItem]               # open items + items completed in the last 7 days
     next: Optional[OrgItem] = None     # the next thing that needs the user
+    knowledge: List[OrgFact] = []      # what VXA knows, per area (+ "profile")
+
+
+class OrgLearnHistoryRequest(BaseModel):
+    """Old chat messages (user's side) for VXA to learn from once — fills Org on a fresh install."""
+    userId: str
+    messages: List[str]

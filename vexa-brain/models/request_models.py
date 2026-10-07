@@ -6,12 +6,12 @@ class ChatRequest(BaseModel):
     userId: str
     prompt: str
     conversationHistory: Optional[List[Dict[str, str]]] = []  # [{role, content}]
+    now: Optional[str] = None   # device local time, ISO with offset — the server clock is UTC
 
 
 class ActionStep(BaseModel):
     step: int
-    type: str           # OPEN_APP | TAP_ELEMENT | TAP_FIELD | TYPE_TEXT | SCROLL_DOWN |
-                        # PRESS_BACK | WAIT_FOR_SCREEN | WAIT_FOR_USER | QUERY_USER
+    type: str           # SEND_EMAIL | CHECK_INBOX | ORG_ADD | ORG_UPDATE
     params: Dict[str, Any]
     description: str
     requiresConfirmation: bool = False  # true for payments, bookings
@@ -30,7 +30,7 @@ class ChatResponse(BaseModel):
     reply: str                              # natural language reply to user
     actionPlan: Optional[ActionPlan] = None # None if just a conversation, not an action
     isAction: bool = False                  # true if actionPlan is present
-    isSavedAgent: bool = False              # true if response came from a saved agent (no AI)
+    orgItems: List[Dict[str, Any]] = []     # Org items created/updated by this message (reminders etc.)
     error: Optional[str] = None
 
 
@@ -38,6 +38,7 @@ class VexaMemory(BaseModel):
     """Shared state passed between agents in the pipeline."""
     user_id: str
     raw_prompt: str
+    user_now: Optional[str] = None      # device local time (ISO with offset)
     conversation_history: List[Dict[str, str]] = []
     behavioral_context: str = ""        # built by MemoryAgent
     knowledge_context: str = ""         # OKF-retrieved relevant knowledge

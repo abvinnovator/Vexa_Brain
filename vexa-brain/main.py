@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from config import settings
 from services import mongodb_service, knowledge_service, tracing_service, neo4j_service, org_service
-from routers import chat, knowledge, email, org
+from routers import chat, knowledge, email, org, assist
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -57,6 +57,7 @@ app.include_router(chat.router, prefix="/api")
 app.include_router(knowledge.router, prefix="/api")
 app.include_router(email.router, prefix="/api")
 app.include_router(org.router, prefix="/api")
+app.include_router(assist.router, prefix="/api")
 
 
 @app.get("/")

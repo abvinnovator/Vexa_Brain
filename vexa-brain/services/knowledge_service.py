@@ -513,6 +513,51 @@ async def update_node(domain: str, filename: str, new_content: str, merge: bool 
     logger.info(f"Knowledge node updated and persisted: {rel_path}")
 
 
+def list_nodes() -> Dict[str, str]:
+    """rel_path -> body content of every knowledge node (for the Org view)."""
+    return {rel: node.get("content", "") for rel, node in _node_cache.items()}
+
+
+async def remove_lines(rel_path: str, lines: List[str]) -> int:
+    """Forget specific lines from a node (user deleted a fact in Org).
+    Rewrites the local file, the in-memory caches and the Neo4j node. Returns lines removed."""
+    node = _node_cache.get(rel_path)
+    if not node:
+        return 0
+    targets = {l.strip() for l in lines if l.strip()}
+    kept, removed = [], 0
+    for line in node.get("content", "").split("\n"):
+        if line.strip() in targets:
+            removed += 1
+        else:
+            kept.append(line)
+    if not removed:
+        return 0
+
+    frontmatter = dict(node.get("frontmatter", {}))
+    frontmatter["last_updated"] = datetime.now().strftime("%Y-%m-%d")
+    content = "\n".join(kept)
+    filepath = node.get("path") or (KNOWLEDGE_BASE_DIR / rel_path)
+    try:
+        _write_okf_file(Path(filepath), frontmatter, content)
+    except Exception as e:
+        logger.warning(f"Could not rewrite OKF file {filepath}: {e}")
+    _node_cache[rel_path] = {**node, "frontmatter": frontmatter, "content": content}
+    _rebuild_section_cache()
+
+    if neo4j_service.is_connected():
+        domain, _, filename = rel_path.removesuffix(".md").partition("/")
+        await neo4j_service.upsert_node(
+            domain=domain, filename=filename,
+            title=frontmatter.get("title", rel_path), node_type=frontmatter.get("type", "knowledge"),
+            tags=frontmatter.get("tags", []), confidence=float(frontmatter.get("confidence", 0.9)),
+            last_updated=frontmatter["last_updated"], status=frontmatter.get("status", "stable"),
+            content=content,
+        )
+    logger.info(f"Forgot {removed} line(s) from {rel_path}")
+    return removed
+
+
 def _write_okf_file(filepath: Path, frontmatter: dict, content: str):
     """Write an OKF file with YAML frontmatter."""
     fm_str = yaml.dump(frontmatter, default_flow_style=False, allow_unicode=True).strip()

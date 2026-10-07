@@ -255,7 +255,8 @@ async def chat(
     max_tokens: int = None,
     json_mode: bool = False,
     agent_name: str = "unknown",
-    metadata: Optional[Dict] = None
+    metadata: Optional[Dict] = None,
+    prefer_models: Optional[List[str]] = None
 ) -> str:
     """Send messages to LLM and return response text.
 
@@ -278,6 +279,10 @@ async def chat(
     openrouter_attempts = 0
 
     chain = _candidates()
+    if prefer_models:
+        # Caller-preferred Groq models first (e.g. gpt-oss-120b writes better Telugu), then the usual chain
+        preferred = [("groq", m) for m in prefer_models]
+        chain = preferred + [pm for pm in chain if pm not in preferred]
     # If every model is cooling down, still try the one that recovers soonest rather than
     # failing outright without a single request.
     force_try = None
