@@ -119,3 +119,214 @@ async def assist_reply(request: AssistReplyRequest):
         raise HTTPException(status_code=502, detail="no drafts produced")
     logger.info(f"Assist reply: {app}, {len(screen)} lines → {len(drafts)} drafts")
     return AssistReplyResponse(person=data.get("person"), context=data.get("context") or "", drafts=drafts[:4])
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Bubble long-press actions: ① Prompt  ② Summarize  ③ Track
+# ══════════════════════════════════════════════════════════════════════
+
+import asyncio  # noqa: E402
+
+from models.org_models import ORG_AREAS, OrgItem  # noqa: E402
+from services import learning_service, org_service, personal_context  # noqa: E402
+
+PAGE_BUDGET = 6000   # chars of page text for prompt/summarize (from the top — it's a page, not a chat)
+
+
+def _page(lines: List[str]) -> List[str]:
+    out, used = [], 0
+    for line in (l.strip() for l in lines if l and l.strip()):
+        if used + len(line) > PAGE_BUDGET:
+            break
+        out.append(line)
+        used += len(line) + 1
+    return out
+
+
+def _local_now(now: Optional[str]) -> datetime:
+    try:
+        dt = datetime.fromisoformat((now or "").replace("Z", "+00:00"))
+        if dt.tzinfo:
+            return dt
+    except ValueError:
+        pass
+    return datetime.now(timezone(timedelta(hours=5, minutes=30)))
+
+
+async def _personal(user_id: str, query: str, user_now: datetime):
+    """Same area-first context as chat: routed facts + Org items + knowledge sections."""
+    r = await personal_context.route(query[:600])
+    try:
+        knowledge = await knowledge_service.query_relevant(query[:500], user_id, expanded_keywords=r.keywords,
+                                                           priority_areas=r.areas)
+    except Exception:
+        knowledge = ""
+    pc = await personal_context.build(user_id, query, r, user_now)
+    return r, knowledge, pc
+
+
+class AssistScreenRequest(BaseModel):
+    userId: str
+    app: Optional[str] = None
+    lines: List[str]
+    prompt: Optional[str] = None      # ① Prompt only
+    now: Optional[str] = None
+
+
+# ── ① Prompt: "help me fill this form based on what you know" ──
+
+PROMPT_PROMPT = """You are VXA, Vamsi's personal assistant. He is looking at this screen in "{app}" and asks:
+"{ask}"
+
+Screen text (top to bottom; THEM:/ME: mark chat bubbles):
+---
+{screen}
+---
+What's going on in his life that this touches:
+{personal}
+
+What you know about him:
+{knowledge}
+
+Answer his request using the screen AND what you know about him — that is the point of VXA.
+- Filling a form: list each field you can see with the value from what you know ("Full name: Brahma Vamsi").
+  For anything you don't know, write "— ask Vamsi" instead of guessing. Never invent IDs, numbers, dates or addresses.
+- Writing something: write it ready to paste, in his tone.
+- Be concise and practical. Plain text with simple line breaks or "-" bullets; no long preamble.
+"""
+
+
+class AssistPromptResponse(BaseModel):
+    answer: str
+
+
+@router.post("/assist/prompt", response_model=AssistPromptResponse)
+async def assist_prompt(request: AssistScreenRequest):
+    ask = (request.prompt or "").strip()
+    if not ask:
+        raise HTTPException(status_code=400, detail="prompt is empty")
+    screen = _page(request.lines)
+    user_now = _local_now(request.now)
+    _, knowledge, pc = await _personal(request.userId, ask + " " + " ".join(screen[:40]), user_now)
+    app = APP_NAMES.get(request.app or "", request.app or "unknown app")
+    answer = await llm_service.chat(
+        [{"role": "user", "content": PROMPT_PROMPT.format(
+            app=app, ask=ask.replace('"', "'"), screen="\n".join(screen) or "(no text on screen)",
+            personal=pc or "(nothing specific)", knowledge=knowledge or "(nothing relevant)")}],
+        temperature=0.4, max_tokens=900, agent_name="assist_prompt",
+        metadata={"app": request.app or "unknown"}, prefer_models=["openai/gpt-oss-120b"], redact_trace=True)
+    # Learn from HIS words (the prompt) — never from the screen
+    if len(ask.split()) >= 4:
+        asyncio.create_task(learning_service.process_conversation(ask, "", "BUBBLE_PROMPT"))
+    return AssistPromptResponse(answer=answer.strip())
+
+
+# ── ② Summarize: normal summary + what it means for HIM + save as a note ──
+
+SUMMARY_PROMPT = """You are VXA, Vamsi's personal assistant. Summarize this screen from "{app}" for him.
+
+Screen text (top to bottom):
+---
+{screen}
+---
+What's going on in his life that this might touch:
+{personal}
+
+What you know about him:
+{knowledge}
+
+1. "summary": 2-4 sentences, a neutral, accurate summary of what's on screen.
+2. "keyPoints": 3-5 short bullets of the most useful details (dates, numbers, decisions, asks).
+3. "forYou": 1-2 sentences on what this means for HIM specifically, using what you know (his job, plans, people, goals).
+   Only real connections — if nothing genuinely relates, say what action (if any) he might take. Never invent facts.
+4. "title": a short note title (max 8 words).
+5. "area": where this note belongs: office, personal, learning, people, or health.
+
+Respond ONLY with JSON: {{"title": "...", "summary": "...", "keyPoints": ["..."], "forYou": "...", "area": "..."}}
+"""
+
+
+class AssistSummaryResponse(BaseModel):
+    title: str
+    summary: str
+    keyPoints: List[str] = []
+    forYou: str = ""
+    area: str = "personal"
+    areaLabel: str = "Personal"
+
+
+@router.post("/assist/summarize", response_model=AssistSummaryResponse)
+async def assist_summarize(request: AssistScreenRequest):
+    screen = _page(request.lines)
+    if not screen:
+        raise HTTPException(status_code=400, detail="no screen text")
+    user_now = _local_now(request.now)
+    _, knowledge, pc = await _personal(request.userId, " ".join(screen[:60]), user_now)
+    app = APP_NAMES.get(request.app or "", request.app or "unknown app")
+    raw = await llm_service.chat(
+        [{"role": "user", "content": SUMMARY_PROMPT.format(
+            app=app, screen="\n".join(screen), personal=pc or "(nothing specific)",
+            knowledge=knowledge or "(nothing relevant)")}],
+        temperature=0.3, max_tokens=900, json_mode=True, agent_name="assist_summarize",
+        metadata={"app": request.app or "unknown"}, prefer_models=["openai/gpt-oss-120b"], redact_trace=True)
+    data = json.loads(raw)
+    area = data.get("area") if data.get("area") in ORG_AREAS else "personal"
+    return AssistSummaryResponse(
+        title=(data.get("title") or "Screen summary")[:120],
+        summary=data.get("summary") or "",
+        keyPoints=[str(p) for p in data.get("keyPoints", [])][:6],
+        forYou=data.get("forYou") or "",
+        area=area, areaLabel=ORG_AREAS[area],
+    )
+
+
+# ── ③ Track: anything actionable on screen → Org items with reminders ──
+
+TRACK_PROMPT = """You are VXA, Vamsi's personal organiser. He long-pressed "Track" on this screen from "{app}".
+Find what HE should act on or remember with a time attached: meetings, interviews, deadlines, due dates, events,
+appointments, promises someone made to him or he made ("I'll send it tomorrow"), offers that expire.
+
+Current local time: {now}
+Screen text (top to bottom; THEM:/ME: mark chat bubbles):
+---
+{screen}
+---
+
+For each (max 3, most important first) output an item:
+- area: office | personal | learning | people | health
+- type: reminder (a time to be notified) | task (to do, maybe by a deadline) | followup (involves another person — set person)
+- title: short, starts with a verb ("Attend Cognizant interview", "Pay hostel fee")
+- detail: one line of useful context from the screen (place, link, who) or null
+- dueAt: ISO-8601 with the same offset as the current time; resolve "tomorrow", "Friday", "15th". For an event,
+  remind 1 hour before if a time is given, else 09:00 that day. null if no time at all.
+- person: name or null
+Never include account numbers, card details, OTPs or passwords. If nothing on screen needs tracking, return no items.
+
+Respond ONLY with JSON: {{"items": [...], "reply": "one short line, e.g. Tracked: interview Fri 3 PM (reminder 2 PM)"}}
+"""
+
+
+class AssistTrackResponse(BaseModel):
+    items: List[OrgItem]
+    reply: str
+
+
+@router.post("/assist/track", response_model=AssistTrackResponse)
+async def assist_track(request: AssistScreenRequest):
+    screen = _page(request.lines)
+    if not screen:
+        raise HTTPException(status_code=400, detail="no screen text")
+    user_now = _local_now(request.now)
+    app = APP_NAMES.get(request.app or "", request.app or "unknown app")
+    raw = await llm_service.chat(
+        [{"role": "user", "content": TRACK_PROMPT.format(
+            app=app, now=org_service.now_with_calendar(user_now),
+            screen="\n".join(screen))}],
+        temperature=0.1, max_tokens=700, json_mode=True, agent_name="assist_track",
+        metadata={"app": request.app or "unknown"}, prefer_models=["openai/gpt-oss-120b"], redact_trace=True)
+    data = json.loads(raw)
+    cleaned = org_service.clean_items(data.get("items", [])[:3])
+    if not cleaned:
+        return AssistTrackResponse(items=[], reply="Nothing on this screen to track.")
+    items = await org_service.add_items(request.userId, cleaned, source="bubble")
+    return AssistTrackResponse(items=items, reply=(data.get("reply") or f"Tracked {len(items)} item(s).").strip())

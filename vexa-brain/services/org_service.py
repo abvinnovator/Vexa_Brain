@@ -111,6 +111,17 @@ def _user_now(now: Optional[str]) -> datetime:
     return _parse_dt(now) or datetime.now(timezone(timedelta(hours=5, minutes=30)))
 
 
+def now_with_calendar(user_now: datetime) -> str:
+    """Current time plus the next 7 dates by weekday — models miscount weekdays
+    ("Saturday 5pm" became Friday), so give them the calendar instead of making them compute it."""
+    days = [(user_now + timedelta(days=i)) for i in range(8)]
+    cal = ", ".join(
+        ("today " if i == 0 else "tomorrow " if i == 1 else "") + d.strftime("%a %d %b %Y")
+        for i, d in enumerate(days)
+    )
+    return f"{user_now.isoformat(timespec='minutes')} ({user_now.strftime('%A')})\nCalendar: {cal}"
+
+
 def _clean_item(raw: Dict) -> Optional[Dict]:
     area = (raw.get("area") or "").strip().lower()
     item_type = (raw.get("type") or "task").strip().lower()
@@ -146,6 +157,17 @@ async def capture(user_id: str, text: str, now: Optional[str], area: Optional[st
         cleaned = [{"area": area if area in ORG_AREAS else "personal", "type": "note", "title": text.strip()[:200],
                     "detail": None, "dueAt": None, "person": None}]
 
+    items = await add_items(user_id, cleaned, source)
+
+    reply = (data.get("reply") or "").strip() or f"Filed under {ORG_AREAS[items[0].area]}."
+    if learn:
+        _learn(text, reply)
+    logger.info(f"Org capture: {len(items)} item(s) for {user_id}: {[i.title for i in items]}")
+    return OrgCaptureResponse(items=items, reply=reply)
+
+
+async def add_items(user_id: str, cleaned: List[Dict], source: str) -> List[OrgItem]:
+    """Store already-parsed items (area/type/title/dueAt/...), skipping exact duplicates."""
     stamp = _now_iso()
     items, new_docs = [], []
     for c in cleaned:
@@ -160,12 +182,12 @@ async def capture(user_id: str, text: str, now: Optional[str], area: Optional[st
         new_docs.append(item.model_dump())
     if new_docs:
         await _col("org_items").insert_many(new_docs)
+    return items
 
-    reply = (data.get("reply") or "").strip() or f"Filed under {ORG_AREAS[items[0].area]}."
-    if learn:
-        _learn(text, reply)
-    logger.info(f"Org capture: {len(items)} item(s) for {user_id}: {[i.title for i in items]}")
-    return OrgCaptureResponse(items=items, reply=reply)
+
+def clean_items(raw_items: List[Dict]) -> List[Dict]:
+    """Validate LLM-produced items (area/type/title/dueAt) — public for other features (bubble Track)."""
+    return [c for c in (_clean_item(i) for i in raw_items) if c]
 
 
 def _norm(text: Optional[str]) -> str:
@@ -186,7 +208,7 @@ async def _parse_with_reply(text: str, now: Optional[str], area: Optional[str] =
     """LLM: free text → cleaned item dicts (+ the model's one-line reply)."""
     user_now = _user_now(now)
     prompt = CAPTURE_PROMPT.format(
-        now=user_now.isoformat(timespec="minutes") + f" ({user_now.strftime('%A')})",
+        now=now_with_calendar(user_now),
         identity=knowledge_service._get_compact_identity() or "Unknown",
         text=text.replace('"', "'")[:1000],
     )
@@ -213,7 +235,7 @@ async def upsert(item_id: str, body: OrgItemUpsert) -> OrgItem:
     item = OrgItem(id=item_id, createdAt=existing["createdAt"] if existing else stamp, updatedAt=stamp, **fields)
     await _col("org_items").replace_one({"id": item_id}, item.model_dump(), upsert=True)
 
-    if existing is None and body.source == "manual":
+    if existing is None and body.source in ("manual", "note"):
         when = f" due {body.dueAt}" if body.dueAt else ""
         _learn(f"{body.title}. {body.detail or ''}".strip(), f"Added to {ORG_AREAS[item.area]} as a {item.type}{when}.")
     return item
